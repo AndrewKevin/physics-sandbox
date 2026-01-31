@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Physics Sandbox</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Outfit:wght@700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Left Panel: Mode & Materials -->
+        <aside id="left-panel">
+            <h1 class="logo">PHYSICS<br><span>SANDBOX</span></h1>
+
+            <section class="panel-section">
+                <h2>MODE</h2>
+                <div class="mode-buttons">
+                    <button class="mode-btn active" data-mode="connect">
+                        <span class="mode-icon">─</span>
+                        Connect
+                    </button>
+                    <button class="mode-btn" data-mode="select">
+                        <span class="mode-icon">☐</span>
+                        Select
+                    </button>
+                    <button class="mode-btn" data-mode="delete">
+                        <span class="mode-icon">✕</span>
+                        Delete
+                    </button>
+                </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>MATERIAL</h2>
+                <div class="material-buttons">
+                    <button class="material-btn active" data-material="beam">
+                        <span class="material-preview beam-preview"></span>
+                        <span class="material-text">
+                            <span class="material-name">Rigid Beam</span>
+                            <span class="material-desc">High stiffness, resists both compression and tension equally</span>
+                        </span>
+                    </button>
+                    <button class="material-btn" data-material="spring">
+                        <span class="material-preview spring-preview"></span>
+                        <span class="material-text">
+                            <span class="material-name">Spring</span>
+                            <span class="material-desc">Low stiffness, stretches and bounces under load</span>
+                        </span>
+                    </button>
+                    <button class="material-btn" data-material="cable">
+                        <span class="material-preview cable-preview"></span>
+                        <span class="material-text">
+                            <span class="material-name">Cable</span>
+                            <span class="material-desc">Tension only — goes slack under compression</span>
+                        </span>
+                    </button>
+                </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>SIMULATION</h2>
+                <div class="sim-controls">
+                    <button id="sim-toggle" class="sim-btn">
+                        <span class="play-icon">▶</span>
+                        START
+                    </button>
+                    <button id="sim-reset" class="sim-btn secondary">
+                        <span class="reset-icon">↺</span>
+                        RESET
+                    </button>
+                </div>
+            </section>
+        </aside>
+
+        <!-- Main Canvas -->
+        <main id="canvas-container">
+            <canvas id="physics-canvas"></canvas>
+            <div id="canvas-overlay">
+                <span class="hint">Click two points to connect • Right-click node for options</span>
+            </div>
+
+            <!-- Bottom Status Bar -->
+            <div id="bottom-bar">
+                <div class="bottom-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Nodes</span>
+                        <span class="stat-value" id="stat-nodes">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Segments</span>
+                        <span class="stat-value" id="stat-segments">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Max Stress</span>
+                        <span class="stat-value" id="stat-stress">0%</span>
+                    </div>
+                </div>
+
+                <div class="stress-legend-inline">
+                    <span class="legend-label">Stress:</span>
+                    <span class="stress-chip low">Low</span>
+                    <span class="stress-chip medium">Medium</span>
+                    <span class="stress-chip high">High</span>
+                    <span class="stress-chip critical">Critical</span>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right Panel: Properties -->
+        <aside id="right-panel">
+            <section class="panel-section">
+                <h2>SELECTION</h2>
+                <div id="selection-info" class="info-box">
+                    <p class="empty-state">Nothing selected</p>
+                </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>SEGMENT OPTIONS</h2>
+                <div id="segment-options" class="options-group disabled">
+                    <div class="control-row">
+                        <label class="control-label">Material</label>
+                        <select id="segment-material" class="control-select">
+                            <option value="beam">Rigid Beam</option>
+                            <option value="spring">Spring</option>
+                            <option value="cable">Cable</option>
+                        </select>
+                        <span class="control-hint">Base material type affects default stiffness and behaviour</span>
+                    </div>
+
+                    <div class="control-row">
+                        <label class="control-label">
+                            Stiffness <span id="stiffness-value" class="value-display">0.9</span>
+                        </label>
+                        <input type="range" id="segment-stiffness" class="control-slider"
+                               min="0.1" max="1.0" step="0.05" value="0.9">
+                        <span class="control-hint">How rigid the segment is — higher = less stretch</span>
+                    </div>
+
+                    <div class="control-row">
+                        <label class="control-label">
+                            Damping <span id="damping-value" class="value-display">0.1</span>
+                        </label>
+                        <input type="range" id="segment-damping" class="control-slider"
+                               min="0.01" max="0.5" step="0.01" value="0.1">
+                        <span class="control-hint">Energy absorption — higher = less oscillation</span>
+                    </div>
+
+                    <label class="toggle-option">
+                        <input type="checkbox" id="segment-compression">
+                        <span class="toggle-label">Compression Only</span>
+                        <span class="toggle-hint">Like a strut — resists pushing but not pulling</span>
+                    </label>
+                    <label class="toggle-option">
+                        <input type="checkbox" id="segment-tension">
+                        <span class="toggle-label">Tension Only</span>
+                        <span class="toggle-hint">Like a rope — resists pulling but goes slack when pushed</span>
+                    </label>
+                </div>
+            </section>
+
+        </aside>
+    </div>
+
+    <!-- Decorative floating shapes -->
+    <div class="floating-shape shape-1" aria-hidden="true">✦</div>
+    <div class="floating-shape shape-2" aria-hidden="true">◆</div>
+    <div class="floating-shape shape-3" aria-hidden="true">●</div>
+    <div class="floating-shape shape-4" aria-hidden="true">✧</div>
+
+    <script type="module" src="src/main.js"></script>
+</body>
+</html>

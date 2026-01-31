@@ -1,0 +1,18 @@
+{
+  "name": "physics-sandbox",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Interactive physics sandbox for exploring load and stress",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "matter-js": "^0.19.0",
+    "vanilla-context-menu": "^1.6.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

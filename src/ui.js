@@ -1,0 +1,306 @@
+/**
+ * UI Controller - Handles all DOM interactions
+ */
+
+export class UIController {
+    constructor(onModeChange, onMaterialChange, onSimToggle, onReset) {
+        // Callbacks
+        this.onModeChange = onModeChange;
+        this.onMaterialChange = onMaterialChange;
+        this.onSimToggle = onSimToggle;
+        this.onReset = onReset;
+
+        // State
+        this.currentMode = 'connect';
+        this.currentMaterial = 'beam';
+
+        // Cache DOM elements with null guards
+        this.elements = {
+            modeButtons: document.querySelectorAll('.mode-btn'),
+            materialButtons: document.querySelectorAll('.material-btn'),
+            simToggle: this.getElement('sim-toggle'),
+            simReset: this.getElement('sim-reset'),
+            selectionInfo: this.getElement('selection-info'),
+            segmentOptions: this.getElement('segment-options'),
+            segmentMaterial: this.getElement('segment-material'),
+            segmentStiffness: this.getElement('segment-stiffness'),
+            segmentDamping: this.getElement('segment-damping'),
+            stiffnessValue: this.getElement('stiffness-value'),
+            dampingValue: this.getElement('damping-value'),
+            segmentCompression: this.getElement('segment-compression'),
+            segmentTension: this.getElement('segment-tension'),
+            statNodes: this.getElement('stat-nodes'),
+            statSegments: this.getElement('stat-segments'),
+            statStress: this.getElement('stat-stress'),
+            hint: document.querySelector('.hint')
+        };
+
+        this.bindEvents();
+    }
+
+    /**
+     * Safely get a DOM element by ID, logging a warning if not found.
+     */
+    getElement(id) {
+        const el = document.getElementById(id);
+        if (!el) {
+            console.warn(`UIController: Element #${id} not found in DOM`);
+        }
+        return el;
+    }
+
+    bindEvents() {
+        // Mode buttons
+        this.elements.modeButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const mode = btn.dataset.mode;
+                this.setMode(mode);
+            });
+        });
+
+        // Material buttons
+        this.elements.materialButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const material = btn.dataset.material;
+                this.setMaterial(material);
+            });
+        });
+
+        // Simulation controls
+        this.elements.simToggle?.addEventListener('click', () => {
+            this.toggleSimulation();
+        });
+
+        this.elements.simReset?.addEventListener('click', () => {
+            this.onReset();
+        });
+
+        // Segment options
+        this.elements.segmentMaterial?.addEventListener('change', (e) => {
+            this.onSegmentMaterialChange?.(e.target.value);
+        });
+
+        this.elements.segmentStiffness?.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            if (this.elements.stiffnessValue) {
+                this.elements.stiffnessValue.textContent = value.toFixed(2);
+            }
+            this.onSegmentStiffnessChange?.(value);
+        });
+
+        this.elements.segmentDamping?.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            if (this.elements.dampingValue) {
+                this.elements.dampingValue.textContent = value.toFixed(2);
+            }
+            this.onSegmentDampingChange?.(value);
+        });
+
+        this.elements.segmentCompression?.addEventListener('change', (e) => {
+            this.onSegmentCompressionChange?.(e.target.checked);
+        });
+
+        this.elements.segmentTension?.addEventListener('change', (e) => {
+            this.onSegmentTensionChange?.(e.target.checked);
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            this.handleKeydown(e);
+        });
+    }
+
+    handleKeydown(e) {
+        // Don't handle if typing in an input element
+        const tagName = e.target.tagName;
+        if (tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA') return;
+
+        switch (e.key.toLowerCase()) {
+            case '1':
+            case 'c':
+                this.setMode('connect');
+                break;
+            case '2':
+            case 's':
+                this.setMode('select');
+                break;
+            case '3':
+            case 'd':
+            case 'delete':
+            case 'backspace':
+                this.setMode('delete');
+                break;
+            case ' ':
+                e.preventDefault();
+                this.toggleSimulation();
+                break;
+            case 'r':
+                if (e.ctrlKey || e.metaKey) return; // Don't intercept browser refresh
+                this.onReset();
+                break;
+            case 'escape':
+                // Cancel current action (used by main.js to clear connect start node)
+                break;
+        }
+    }
+
+    setMode(mode) {
+        this.currentMode = mode;
+
+        // Update button states
+        this.elements.modeButtons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+
+        // Update hint text
+        const hints = {
+            connect: 'Click two points to connect • Right-click node for options',
+            select: 'Click nodes or segments to select',
+            delete: 'Click nodes or segments to delete'
+        };
+        if (this.elements.hint) {
+            this.elements.hint.textContent = hints[mode] || '';
+        }
+
+        this.onModeChange(mode);
+    }
+
+    setMaterial(material) {
+        this.currentMaterial = material;
+
+        // Update button states
+        this.elements.materialButtons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.material === material);
+        });
+
+        this.onMaterialChange(material);
+    }
+
+    toggleSimulation() {
+        // Check current state from button and request opposite
+        const isCurrentlyRunning = this.elements.simToggle?.classList.contains('running') ?? false;
+        this.onSimToggle(!isCurrentlyRunning);
+    }
+
+    setSimulating(simulating) {
+        const btn = this.elements.simToggle;
+        if (!btn) return;
+
+        if (simulating) {
+            btn.classList.add('running');
+            btn.innerHTML = '<span class="play-icon">⏸</span> STOP';
+        } else {
+            btn.classList.remove('running');
+            btn.innerHTML = '<span class="play-icon">▶</span> START';
+        }
+
+        // Disable mode/material buttons during simulation
+        this.elements.modeButtons.forEach(btn => {
+            btn.disabled = simulating;
+            btn.style.opacity = simulating ? '0.5' : '1';
+        });
+
+        this.elements.materialButtons.forEach(btn => {
+            btn.disabled = simulating;
+            btn.style.opacity = simulating ? '0.5' : '1';
+        });
+    }
+
+    updateSelection(selection) {
+        const { node, segment } = selection;
+
+        // Update selection info
+        if (node) {
+            if (this.elements.selectionInfo) {
+                this.elements.selectionInfo.innerHTML = `
+                    <p><strong>Node #${node.id}</strong></p>
+                    <p>Position: (${Math.round(node.x)}, ${Math.round(node.y)})</p>
+                    <p>Fixed: ${node.fixed ? 'Yes' : 'No'}</p>
+                `;
+            }
+            this.elements.segmentOptions?.classList.add('disabled');
+        } else if (segment) {
+            if (this.elements.selectionInfo) {
+                this.elements.selectionInfo.innerHTML = `
+                    <p><strong>Segment #${segment.id}</strong></p>
+                    <p>Length: ${Math.round(segment.restLength)}px</p>
+                    <p>Stress: ${Math.round(segment.stress * 100)}%</p>
+                `;
+            }
+            this.elements.segmentOptions?.classList.remove('disabled');
+
+            // Update segment controls to match selection
+            if (this.elements.segmentMaterial) {
+                this.elements.segmentMaterial.value = segment.material;
+            }
+            if (this.elements.segmentStiffness) {
+                this.elements.segmentStiffness.value = segment.stiffness || 0.9;
+            }
+            if (this.elements.stiffnessValue) {
+                this.elements.stiffnessValue.textContent = (segment.stiffness || 0.9).toFixed(2);
+            }
+            if (this.elements.segmentDamping) {
+                this.elements.segmentDamping.value = segment.damping || 0.1;
+            }
+            if (this.elements.dampingValue) {
+                this.elements.dampingValue.textContent = (segment.damping || 0.1).toFixed(2);
+            }
+            if (this.elements.segmentCompression) {
+                this.elements.segmentCompression.checked = segment.compressionOnly;
+            }
+            if (this.elements.segmentTension) {
+                this.elements.segmentTension.checked = segment.tensionOnly;
+            }
+        } else {
+            if (this.elements.selectionInfo) {
+                this.elements.selectionInfo.innerHTML = '<p class="empty-state">Nothing selected</p>';
+            }
+            this.elements.segmentOptions?.classList.add('disabled');
+        }
+    }
+
+    updateStats(stats) {
+        if (this.elements.statNodes) {
+            this.elements.statNodes.textContent = stats.nodeCount;
+        }
+        if (this.elements.statSegments) {
+            this.elements.statSegments.textContent = stats.segmentCount;
+        }
+
+        if (this.elements.statStress) {
+            this.elements.statStress.textContent = `${Math.round(stats.maxStress * 100)}%`;
+
+            // Colour code max stress
+            if (stats.maxStress < 0.25) {
+                this.elements.statStress.style.color = '#00F5D4';
+            } else if (stats.maxStress < 0.5) {
+                this.elements.statStress.style.color = '#FFE600';
+            } else if (stats.maxStress < 0.75) {
+                this.elements.statStress.style.color = '#FF6B35';
+            } else {
+                this.elements.statStress.style.color = '#FF3AF2';
+            }
+        }
+    }
+
+    // Set callbacks for segment property changes
+    setSegmentMaterialCallback(callback) {
+        this.onSegmentMaterialChange = callback;
+    }
+
+    setSegmentStiffnessCallback(callback) {
+        this.onSegmentStiffnessChange = callback;
+    }
+
+    setSegmentDampingCallback(callback) {
+        this.onSegmentDampingChange = callback;
+    }
+
+    setSegmentCompressionCallback(callback) {
+        this.onSegmentCompressionChange = callback;
+    }
+
+    setSegmentTensionCallback(callback) {
+        this.onSegmentTensionChange = callback;
+    }
+}

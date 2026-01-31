@@ -1,0 +1,327 @@
+/**
+ * Custom Renderer for Physics Sandbox
+ * Handles drawing nodes, segments, and stress visualisation
+ */
+
+import { Node, MATERIALS } from './structure.js';
+
+export class Renderer {
+    // Constants
+    static GRID_SIZE = 20;
+    static GRID_MAJOR_INTERVAL = 5;
+    static GROUND_PATTERN_SPACING = 20;
+    static DEFAULT_GROUND_OFFSET = 60;
+
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        this.width = 0;
+        this.height = 0;
+
+        // Design tokens
+        this.colors = {
+            bg: '#0D0D1A',
+            grid: 'rgba(123, 47, 255, 0.1)',
+            gridMajor: 'rgba(123, 47, 255, 0.2)',
+            node: '#00F5D4',
+            nodeFixed: '#FF3AF2',
+            nodeHover: '#FFE600',
+            nodeSelected: '#FFFFFF',
+            segment: '#00F5D4',
+            ground: '#2D1B4E'
+        };
+
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+    }
+
+    resize() {
+        const container = this.canvas.parentElement;
+        this.width = container.clientWidth;
+        this.height = container.clientHeight;
+        this.canvas.width = this.width;
+        this.canvas.height = this.height;
+    }
+
+    clear() {
+        this.ctx.fillStyle = this.colors.bg;
+        this.ctx.fillRect(0, 0, this.width, this.height);
+    }
+
+    drawGrid() {
+        const ctx = this.ctx;
+
+        // Draw minor grid lines
+        ctx.strokeStyle = this.colors.grid;
+        ctx.lineWidth = 1;
+
+        for (let x = 0; x < this.width; x += Renderer.GRID_SIZE) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, this.height);
+            ctx.stroke();
+        }
+
+        for (let y = 0; y < this.height; y += Renderer.GRID_SIZE) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(this.width, y);
+            ctx.stroke();
+        }
+
+        // Draw major grid lines (every N cells)
+        ctx.strokeStyle = this.colors.gridMajor;
+        ctx.lineWidth = 1;
+
+        for (let x = 0; x < this.width; x += Renderer.GRID_SIZE * Renderer.GRID_MAJOR_INTERVAL) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, this.height);
+            ctx.stroke();
+        }
+
+        for (let y = 0; y < this.height; y += Renderer.GRID_SIZE * Renderer.GRID_MAJOR_INTERVAL) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(this.width, y);
+            ctx.stroke();
+        }
+    }
+
+    drawGround(groundY) {
+        const ctx = this.ctx;
+
+        // Ground fill
+        ctx.fillStyle = this.colors.ground;
+        ctx.fillRect(0, groundY, this.width, this.height - groundY);
+
+        // Ground line with glow
+        ctx.strokeStyle = '#FF3AF2';
+        ctx.lineWidth = 4;
+        ctx.shadowColor = '#FF3AF2';
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.moveTo(0, groundY);
+        ctx.lineTo(this.width, groundY);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Ground pattern
+        ctx.strokeStyle = 'rgba(255, 58, 242, 0.2)';
+        ctx.lineWidth = 1;
+        for (let y = groundY + Renderer.GROUND_PATTERN_SPACING; y < this.height; y += Renderer.GROUND_PATTERN_SPACING) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(this.width, y);
+            ctx.stroke();
+        }
+    }
+
+    drawSegment(segment, simulating = false) {
+        const ctx = this.ctx;
+        const nodeA = segment.nodeA;
+        const nodeB = segment.nodeB;
+
+        // Get actual positions (from physics body if simulating)
+        const posA = nodeA.body && simulating
+            ? nodeA.body.position
+            : { x: nodeA.x, y: nodeA.y };
+        const posB = nodeB.body && simulating
+            ? nodeB.body.position
+            : { x: nodeB.x, y: nodeB.y };
+
+        // Get color based on stress when simulating
+        let color = MATERIALS[segment.material].color;
+        if (simulating) {
+            color = segment.getStressColor();
+        }
+
+        // Line width based on material
+        let lineWidth = 6;
+        if (segment.material === 'cable') {
+            lineWidth = 3;
+        } else if (segment.material === 'spring') {
+            lineWidth = 4;
+        }
+
+        // Draw segment
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.lineCap = 'round';
+
+        // Check if segment is slack (tension-only compressed or compression-only stretched)
+        const isSlack = segment.isSlack;
+
+        // Apply slack styling - dashed line, reduced opacity
+        if (isSlack) {
+            ctx.globalAlpha = 0.4;
+            ctx.setLineDash([8, 8]);
+        }
+
+        // Add glow when stressed or selected (but not when slack)
+        if (!isSlack && (segment.stress > 0.5 || segment.selected)) {
+            ctx.shadowColor = color;
+            ctx.shadowBlur = segment.selected ? 20 : segment.stress * 30;
+        }
+
+        ctx.beginPath();
+
+        if (segment.material === 'spring') {
+            // Draw spring as zigzag
+            this.drawSpringLine(ctx, posA.x, posA.y, posB.x, posB.y);
+        } else {
+            ctx.moveTo(posA.x, posA.y);
+            ctx.lineTo(posB.x, posB.y);
+        }
+
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+        ctx.setLineDash([]);
+
+        // Draw selection highlight
+        if (segment.selected) {
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = lineWidth + 4;
+            ctx.globalAlpha = 0.3;
+            ctx.beginPath();
+            ctx.moveTo(posA.x, posA.y);
+            ctx.lineTo(posB.x, posB.y);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+
+        // Draw hover highlight
+        if (segment.hovered && !segment.selected) {
+            ctx.strokeStyle = '#FFE600';
+            ctx.lineWidth = lineWidth + 2;
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(posA.x, posA.y);
+            ctx.lineTo(posB.x, posB.y);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    drawSpringLine(ctx, x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+
+        const segments = Math.max(8, Math.floor(length / 10));
+        const amplitude = 8;
+
+        ctx.save();
+        ctx.translate(x1, y1);
+        ctx.rotate(angle);
+
+        ctx.moveTo(0, 0);
+
+        for (let i = 1; i < segments; i++) {
+            const x = (i / segments) * length;
+            const y = (i % 2 === 0 ? -1 : 1) * amplitude;
+            ctx.lineTo(x, y);
+        }
+
+        ctx.lineTo(length, 0);
+        ctx.restore();
+    }
+
+    drawNode(node, simulating = false) {
+        const ctx = this.ctx;
+        const radius = Node.radius;
+
+        // Get actual position (from physics body if simulating)
+        const pos = node.body && simulating
+            ? node.body.position
+            : { x: node.x, y: node.y };
+
+        // Determine colors
+        let fillColor = this.colors.node;
+        let strokeColor = '#FFFFFF';
+
+        if (node.fixed) {
+            fillColor = this.colors.nodeFixed;
+        }
+
+        if (node.selected) {
+            strokeColor = this.colors.nodeSelected;
+        } else if (node.hovered) {
+            fillColor = this.colors.nodeHover;
+        }
+
+        // Draw glow
+        if (node.selected || node.hovered || node.fixed) {
+            ctx.shadowColor = fillColor;
+            ctx.shadowBlur = 15;
+        }
+
+        // Draw node circle
+        ctx.fillStyle = fillColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = node.selected ? 4 : 3;
+
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+
+        // Draw fixed indicator (anchor symbol)
+        if (node.fixed) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('⚓', pos.x, pos.y);
+        }
+    }
+
+    drawConnectionPreview(startNode, endX, endY) {
+        const ctx = this.ctx;
+
+        ctx.strokeStyle = 'rgba(0, 245, 212, 0.5)';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([10, 10]);
+
+        ctx.beginPath();
+        ctx.moveTo(startNode.x, startNode.y);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+    }
+
+    render(structure, state = {}) {
+        const {
+            simulating = false,
+            groundY = this.height - Renderer.DEFAULT_GROUND_OFFSET,
+            mouseX = 0,
+            mouseY = 0,
+            mode = 'connect',
+            connectStartNode = null
+        } = state;
+
+        this.clear();
+        this.drawGrid();
+        this.drawGround(groundY);
+
+        // Draw segments first (behind nodes)
+        for (const segment of structure.segments) {
+            this.drawSegment(segment, simulating);
+        }
+
+        // Draw nodes
+        for (const node of structure.nodes) {
+            this.drawNode(node, simulating);
+        }
+
+        // Draw connection preview in connect mode
+        if (!simulating && mode === 'connect' && connectStartNode) {
+            this.drawConnectionPreview(connectStartNode, mouseX, mouseY);
+        }
+    }
+}
