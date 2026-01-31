@@ -5,9 +5,10 @@
 
 import Matter from 'matter-js';
 import VanillaContextMenu from 'vanilla-context-menu';
-import { StructureManager, Node, MATERIALS } from './structure.js';
+import { StructureManager, Node, Weight, MATERIALS } from './structure.js';
 import { Renderer } from './renderer.js';
 import { UIController } from './ui.js';
+import { WeightPopup } from './weight-popup.js';
 
 class PhysicsSandbox {
     // Constants
@@ -28,11 +29,13 @@ class PhysicsSandbox {
         this.connectStartNode = null;
         this.hoveredNode = null;
         this.hoveredSegment = null;
+        this.hoveredWeight = null;
 
         // Drag state
         this.isDragging = false;
         this.draggedNode = null;
-        this.dragStartPos = null;
+        this.dragStartMousePos = null;  // Mouse position when drag started
+        this.dragStartNodePos = null;   // Original node position for restoration
         this.wasJustDragging = false;
 
         // Physics references
@@ -45,6 +48,7 @@ class PhysicsSandbox {
         this.initPhysics();
         this.initUI();
         this.initContextMenu();
+        this.initWeightPopup();
         this.initEvents();
 
         // Start render loop
@@ -142,20 +146,54 @@ class PhysicsSandbox {
         this.contextMenu = null;
     }
 
+    initWeightPopup() {
+        this.weightPopup = new WeightPopup();
+
+        this.weightPopup.onDelete = (weight) => {
+            if (this.structure.weights.includes(weight)) {
+                this.structure.removeWeight(weight);
+                this.ui.updateSelection({});
+                this.updateStats();
+            }
+        };
+
+        this.weightPopup.onMassChange = () => {
+            // Weight mass is updated directly by the popup
+            // Just refresh the UI selection info
+            const weight = this.structure.selectedWeight;
+            if (weight) {
+                this.ui.updateSelection({ weight });
+            }
+        };
+
+        this.weightPopup.onPositionChange = () => {
+            // Weight position is updated directly by the popup
+            const weight = this.structure.selectedWeight;
+            if (weight) {
+                this.ui.updateSelection({ weight });
+            }
+        };
+
+        this.weightPopup.onClose = () => {
+            // Optionally clear selection when popup closes
+        };
+    }
+
     /**
      * Show a context menu with specified items at event position.
      * @param {Event} event - The mouse event for positioning
      * @param {Array} menuItems - Array of menu item objects {label, callback}
      */
     showContextMenu(event, menuItems) {
-        // Destroy previous menu if it exists
-        if (this.contextMenu) {
-            this.contextMenu.close();
-        }
+        // Close all existing menus first
+        this.closeAllMenus();
 
         // Create new context menu with provided items
+        // Use document.body as scope to prevent VanillaContextMenu from
+        // binding its own contextmenu listener to the canvas (which would
+        // cause it to show stale menus on subsequent right-clicks)
         this.contextMenu = new VanillaContextMenu({
-            scope: this.canvas,
+            scope: document.body,
             customThemeClass: 'physics-context-menu',
             customClass: 'physics-context-menu',
             transitionDuration: 100,
@@ -183,6 +221,17 @@ class PhysicsSandbox {
                 }
             },
             {
+                label: '⚖️  Add Weight',
+                callback: () => {
+                    if (this.structure.nodes.includes(node)) {
+                        const weight = this.structure.addWeight(node);
+                        this.structure.selectWeight(weight);
+                        this.ui.updateSelection({ weight });
+                        this.updateStats();
+                    }
+                }
+            },
+            {
                 label: '✕  Delete Node',
                 callback: () => {
                     if (this.structure.nodes.includes(node)) {
@@ -201,16 +250,30 @@ class PhysicsSandbox {
     /**
      * Generate menu items for a segment context menu.
      * @param {Segment} segment - The segment to create menu items for
+     * @param {number} clickX - X position of click (for weight placement)
+     * @param {number} clickY - Y position of click (for weight placement)
      * @returns {Array} Array of menu item objects
      */
-    getSegmentMenuItems(segment) {
-        // Placeholder for future segment menu items
+    getSegmentMenuItems(segment, clickX, clickY) {
         return [
             {
                 label: '⚙️  Edit Properties',
                 callback: () => {
                     this.structure.selectSegment(segment);
                     this.ui.updateSelection({ segment });
+                }
+            },
+            {
+                label: '⚖️  Add Weight',
+                callback: () => {
+                    if (this.structure.segments.includes(segment)) {
+                        // Calculate position along segment (0-1) based on click position
+                        const position = this.getPositionOnSegment(segment, clickX, clickY);
+                        const weight = this.structure.addWeight(segment, position);
+                        this.structure.selectWeight(weight);
+                        this.ui.updateSelection({ weight });
+                        this.updateStats();
+                    }
                 }
             },
             {
@@ -224,6 +287,29 @@ class PhysicsSandbox {
                 }
             }
         ];
+    }
+
+    /**
+     * Calculate the position (0-1) of a point projected onto a segment.
+     * @param {Segment} segment - The segment
+     * @param {number} px - Point X
+     * @param {number} py - Point Y
+     * @returns {number} Position along segment (0-1)
+     */
+    getPositionOnSegment(segment, px, py) {
+        const x1 = segment.nodeA.x;
+        const y1 = segment.nodeA.y;
+        const x2 = segment.nodeB.x;
+        const y2 = segment.nodeB.y;
+
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lenSq = dx * dx + dy * dy;
+
+        if (lenSq === 0) return 0.5;
+
+        const t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+        return Math.max(0, Math.min(1, t));
     }
 
     initEvents() {
@@ -278,13 +364,14 @@ class PhysicsSandbox {
     onKeyDown(e) {
         // Cancel drag on Escape
         if (e.key === 'Escape' && this.isDragging) {
-            // Restore original position
-            if (this.draggedNode && this.dragStartPos) {
-                this.draggedNode.updatePosition(this.dragStartPos.x, this.dragStartPos.y);
+            // Restore original node position
+            if (this.draggedNode && this.dragStartNodePos) {
+                this.draggedNode.updatePosition(this.dragStartNodePos.x, this.dragStartNodePos.y);
             }
             this.isDragging = false;
             this.draggedNode = null;
-            this.dragStartPos = null;
+            this.dragStartMousePos = null;
+            this.dragStartNodePos = null;
             this.wasJustDragging = false;
         }
     }
@@ -307,6 +394,24 @@ class PhysicsSandbox {
         };
     }
 
+    /**
+     * Clear hover states from all elements.
+     */
+    clearHoverStates() {
+        if (this.hoveredNode) {
+            this.hoveredNode.hovered = false;
+            this.hoveredNode = null;
+        }
+        if (this.hoveredSegment) {
+            this.hoveredSegment.hovered = false;
+            this.hoveredSegment = null;
+        }
+        if (this.hoveredWeight) {
+            this.hoveredWeight.hovered = false;
+            this.hoveredWeight = null;
+        }
+    }
+
     onTouchStart(e) {
         if (e.touches.length === 1) {
             e.preventDefault();
@@ -320,7 +425,8 @@ class PhysicsSandbox {
                 const node = this.structure.findNodeAt(pos.x, pos.y);
                 if (node) {
                     this.draggedNode = node;
-                    this.dragStartPos = { x: pos.x, y: pos.y };
+                    this.dragStartMousePos = { x: pos.x, y: pos.y };
+                    this.dragStartNodePos = { x: node.x, y: node.y };
                 }
             }
         }
@@ -334,9 +440,9 @@ class PhysicsSandbox {
             this.mouseY = pos.y;
 
             // Handle dragging
-            if (!this.isSimulating && this.draggedNode && this.dragStartPos) {
-                const dx = pos.x - this.dragStartPos.x;
-                const dy = pos.y - this.dragStartPos.y;
+            if (!this.isSimulating && this.draggedNode && this.dragStartMousePos) {
+                const dx = pos.x - this.dragStartMousePos.x;
+                const dy = pos.y - this.dragStartMousePos.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
                 if (distance > PhysicsSandbox.TOUCH_TAP_THRESHOLD || this.isDragging) {
@@ -349,25 +455,24 @@ class PhysicsSandbox {
 
             // Update hover states for visual feedback
             if (!this.isSimulating) {
-                // Clear previously hovered elements
-                if (this.hoveredNode) {
-                    this.hoveredNode.hovered = false;
-                    this.hoveredNode = null;
-                }
-                if (this.hoveredSegment) {
-                    this.hoveredSegment.hovered = false;
-                    this.hoveredSegment = null;
-                }
+                this.clearHoverStates();
 
-                const node = this.structure.findNodeAt(pos.x, pos.y);
-                if (node) {
-                    node.hovered = true;
-                    this.hoveredNode = node;
+                // Check for hover (weights first, then nodes, then segments)
+                const weight = this.structure.findWeightAt(pos.x, pos.y);
+                if (weight) {
+                    weight.hovered = true;
+                    this.hoveredWeight = weight;
                 } else {
-                    const segment = this.structure.findSegmentAt(pos.x, pos.y);
-                    if (segment) {
-                        segment.hovered = true;
-                        this.hoveredSegment = segment;
+                    const node = this.structure.findNodeAt(pos.x, pos.y);
+                    if (node) {
+                        node.hovered = true;
+                        this.hoveredNode = node;
+                    } else {
+                        const segment = this.structure.findSegmentAt(pos.x, pos.y);
+                        if (segment) {
+                            segment.hovered = true;
+                            this.hoveredSegment = segment;
+                        }
                     }
                 }
             }
@@ -383,7 +488,8 @@ class PhysicsSandbox {
 
             // Clear drag state
             this.draggedNode = null;
-            this.dragStartPos = null;
+            this.dragStartMousePos = null;
+            this.dragStartNodePos = null;
 
             if (this.isDragging) {
                 this.isDragging = false;
@@ -418,7 +524,8 @@ class PhysicsSandbox {
 
         if (node) {
             this.draggedNode = node;
-            this.dragStartPos = { x: pos.x, y: pos.y };
+            this.dragStartMousePos = { x: pos.x, y: pos.y };
+            this.dragStartNodePos = { x: node.x, y: node.y };
         }
     }
 
@@ -429,7 +536,8 @@ class PhysicsSandbox {
 
         // Clear drag state
         this.draggedNode = null;
-        this.dragStartPos = null;
+        this.dragStartMousePos = null;
+        this.dragStartNodePos = null;
 
         if (this.isDragging) {
             this.isDragging = false;
@@ -450,9 +558,9 @@ class PhysicsSandbox {
         this.mouseY = pos.y;
 
         // Handle dragging
-        if (!this.isSimulating && this.draggedNode && this.dragStartPos) {
-            const dx = pos.x - this.dragStartPos.x;
-            const dy = pos.y - this.dragStartPos.y;
+        if (!this.isSimulating && this.draggedNode && this.dragStartMousePos) {
+            const dx = pos.x - this.dragStartMousePos.x;
+            const dy = pos.y - this.dragStartMousePos.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             // Start dragging after moving past threshold
@@ -467,30 +575,29 @@ class PhysicsSandbox {
 
         // Update hover states and cursor
         if (!this.isSimulating) {
-            // Clear previously hovered elements
-            if (this.hoveredNode) {
-                this.hoveredNode.hovered = false;
-                this.hoveredNode = null;
-            }
-            if (this.hoveredSegment) {
-                this.hoveredSegment.hovered = false;
-                this.hoveredSegment = null;
-            }
+            this.clearHoverStates();
 
-            // Check for hover
-            const node = this.structure.findNodeAt(pos.x, pos.y);
-            if (node) {
-                node.hovered = true;
-                this.hoveredNode = node;
-                this.canvas.style.cursor = this.getCursorForMode(true, true);
+            // Check for hover (weights first, then nodes, then segments)
+            const weight = this.structure.findWeightAt(pos.x, pos.y);
+            if (weight) {
+                weight.hovered = true;
+                this.hoveredWeight = weight;
+                this.canvas.style.cursor = this.getCursorForMode(true, false);
             } else {
-                const segment = this.structure.findSegmentAt(pos.x, pos.y);
-                if (segment) {
-                    segment.hovered = true;
-                    this.hoveredSegment = segment;
-                    this.canvas.style.cursor = this.getCursorForMode(true, false);
+                const node = this.structure.findNodeAt(pos.x, pos.y);
+                if (node) {
+                    node.hovered = true;
+                    this.hoveredNode = node;
+                    this.canvas.style.cursor = this.getCursorForMode(true, true);
                 } else {
-                    this.canvas.style.cursor = this.getCursorForMode(false);
+                    const segment = this.structure.findSegmentAt(pos.x, pos.y);
+                    if (segment) {
+                        segment.hovered = true;
+                        this.hoveredSegment = segment;
+                        this.canvas.style.cursor = this.getCursorForMode(true, false);
+                    } else {
+                        this.canvas.style.cursor = this.getCursorForMode(false);
+                    }
                 }
             }
         } else {
@@ -558,7 +665,19 @@ class PhysicsSandbox {
 
         const pos = this.getMousePos(e);
 
-        // Check for node first (higher priority)
+        // Check for weight first (smallest, highest priority)
+        const weight = this.structure.findWeightAt(pos.x, pos.y);
+        if (weight) {
+            // Close all existing menus first
+            this.closeAllMenus();
+            // Use custom weight popup instead of context menu
+            this.structure.selectWeight(weight);
+            this.ui.updateSelection({ weight });
+            this.weightPopup.show(weight, e.clientX, e.clientY);
+            return;
+        }
+
+        // Check for node (higher priority than segment)
         const node = this.structure.findNodeAt(pos.x, pos.y);
         if (node) {
             const menuItems = this.getNodeMenuItems(node);
@@ -569,18 +688,34 @@ class PhysicsSandbox {
         // Check for segment
         const segment = this.structure.findSegmentAt(pos.x, pos.y);
         if (segment) {
-            const menuItems = this.getSegmentMenuItems(segment);
+            const menuItems = this.getSegmentMenuItems(segment, pos.x, pos.y);
             this.showContextMenu(e, menuItems);
             return;
         }
 
-        // Right-click on empty space - cancel current action
+        // Right-click on empty space - cancel current action and close any open menus
+        this.closeAllMenus();
+
         if (this.connectStartNode) {
             this.connectStartNode.selected = false;
             this.connectStartNode = null;
         }
         this.structure.clearSelection();
         this.ui.updateSelection({});
+    }
+
+    /**
+     * Close all open menus (context menu and weight popup).
+     */
+    closeAllMenus() {
+        if (this.contextMenu) {
+            this.contextMenu.close();
+            this.contextMenu.off();  // Remove event listeners after closing
+            this.contextMenu = null;
+        }
+        if (this.weightPopup?.isOpen()) {
+            this.weightPopup.close();
+        }
     }
 
     handleConnect(x, y) {
@@ -619,7 +754,15 @@ class PhysicsSandbox {
     }
 
     handleSelect(x, y) {
-        // Try to select node first
+        // Try to select weight first (smallest, highest priority)
+        const weight = this.structure.findWeightAt(x, y);
+        if (weight) {
+            this.structure.selectWeight(weight);
+            this.ui.updateSelection({ weight });
+            return;
+        }
+
+        // Try to select node
         const node = this.structure.findNodeAt(x, y);
         if (node) {
             this.structure.selectNode(node);
@@ -641,9 +784,26 @@ class PhysicsSandbox {
     }
 
     handleDelete(x, y) {
-        // Try to delete node first
+        // Try to delete weight first (smallest, highest priority)
+        const weight = this.structure.findWeightAt(x, y);
+        if (weight) {
+            // Close popup if it's showing this weight
+            if (this.weightPopup?.isOpen() && this.weightPopup.weight === weight) {
+                this.weightPopup.close();
+            }
+            this.structure.removeWeight(weight);
+            this.ui.updateSelection({});
+            this.updateStats();
+            return;
+        }
+
+        // Try to delete node
         const node = this.structure.findNodeAt(x, y);
         if (node) {
+            // Close popup if it's showing a weight attached to this node
+            if (this.weightPopup?.isOpen() && this.weightPopup.weight?.isAttachedTo(node)) {
+                this.weightPopup.close();
+            }
             // Clear connectStartNode if we're deleting it
             if (this.connectStartNode === node) {
                 this.connectStartNode = null;
@@ -656,8 +816,13 @@ class PhysicsSandbox {
         // Try to delete segment
         const segment = this.structure.findSegmentAt(x, y);
         if (segment) {
+            // Close popup if it's showing a weight attached to this segment
+            if (this.weightPopup?.isOpen() && this.weightPopup.weight?.isAttachedTo(segment)) {
+                this.weightPopup.close();
+            }
             this.structure.removeSegment(segment);
             this.ui.updateSelection({});
+            this.updateStats();
         }
     }
 
@@ -689,8 +854,7 @@ class PhysicsSandbox {
         this.ui.setSimulating(true);
 
         // Clear hover states
-        this.hoveredNode = null;
-        this.hoveredSegment = null;
+        this.clearHoverStates();
 
         // Clear existing physics world
         Matter.World.clear(this.engine.world);
@@ -746,10 +910,55 @@ class PhysicsSandbox {
             Matter.World.add(this.engine.world, constraint);
         }
 
+        // Create physics bodies for weights
+        for (const weight of this.structure.weights) {
+            const pos = weight.getPosition();
+
+            // Create weight body (heavier, affected by gravity)
+            // Use dynamic radius based on mass
+            const body = Matter.Bodies.circle(pos.x, pos.y, weight.getRadius(), {
+                mass: weight.mass,
+                restitution: 0.1,
+                friction: 0.8,
+                frictionStatic: 1.0,
+                frictionAir: 0.02,
+                label: 'weight'
+            });
+            weight.body = body;
+            Matter.World.add(this.engine.world, body);
+
+            // Create constraint to attachment point
+            if (weight.attachedToNode) {
+                // Simple constraint to node body
+                const constraint = Matter.Constraint.create({
+                    bodyA: weight.body,
+                    bodyB: weight.attachedToNode.body,
+                    stiffness: 0.9,
+                    damping: 0.1,
+                    length: 0
+                });
+                weight.constraint = constraint;
+                Matter.World.add(this.engine.world, constraint);
+            } else if (weight.attachedToSegment) {
+                // For segment attachment, create a constraint to a world point
+                // This will be updated each frame in updateWeightConstraints()
+                const constraint = Matter.Constraint.create({
+                    bodyA: weight.body,
+                    pointB: pos,
+                    stiffness: 0.9,
+                    damping: 0.1,
+                    length: 0
+                });
+                weight.constraint = constraint;
+                Matter.World.add(this.engine.world, constraint);
+            }
+        }
+
         // Add physics update listener for tension-only/compression-only behaviour
         // Store reference so we can remove it later
         this.constraintModeHandler = () => {
             this.updateConstraintModes();
+            this.updateWeightConstraints();
         };
         Matter.Events.on(this.engine, 'beforeUpdate', this.constraintModeHandler);
 
@@ -805,6 +1014,32 @@ class PhysicsSandbox {
         }
     }
 
+    /**
+     * Update segment-attached weight constraints.
+     * The attachment point moves with the segment, so we need to
+     * recalculate pointB each frame.
+     */
+    updateWeightConstraints() {
+        for (const weight of this.structure.weights) {
+            // Only need to update segment-attached weights
+            if (!weight.attachedToSegment || !weight.constraint) continue;
+
+            const seg = weight.attachedToSegment;
+            if (!seg.nodeA.body || !seg.nodeB.body) continue;
+
+            // Calculate current attachment point on segment
+            const posA = seg.nodeA.body.position;
+            const posB = seg.nodeB.body.position;
+            const attachPoint = {
+                x: posA.x + (posB.x - posA.x) * weight.position,
+                y: posA.y + (posB.y - posA.y) * weight.position
+            };
+
+            // Update constraint's world attachment point
+            weight.constraint.pointB = attachPoint;
+        }
+    }
+
     stopSimulation() {
         this.isSimulating = false;
         this.ui.setSimulating(false);
@@ -833,6 +1068,12 @@ class PhysicsSandbox {
             segment.isSlack = false;  // Reset visual state
         }
 
+        // Clear weight bodies and constraints
+        for (const weight of this.structure.weights) {
+            weight.body = null;
+            weight.constraint = null;
+        }
+
         // Clear physics world
         Matter.World.clear(this.engine.world);
         this.groundBody = null;
@@ -844,9 +1085,11 @@ class PhysicsSandbox {
         this.connectStartNode = null;
         this.hoveredNode = null;
         this.hoveredSegment = null;
+        this.hoveredWeight = null;
         this.isDragging = false;
         this.draggedNode = null;
-        this.dragStartPos = null;
+        this.dragStartMousePos = null;
+        this.dragStartNodePos = null;
         this.wasJustDragging = false;
         this.ui.updateSelection({});
         this.updateStats();

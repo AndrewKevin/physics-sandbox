@@ -132,13 +132,110 @@ export class Segment {
     }
 }
 
+// Weight class - attachable to nodes or segments
+export class Weight {
+    constructor(target, position = 0.5, mass = 10) {
+        this.id = Weight.nextId++;
+        this.mass = mass;
+        this.selected = false;
+        this.hovered = false;
+        this.body = null;  // Matter.js body reference
+        this.constraint = null;  // Matter.js constraint to attachment point
+
+        // Attachment - either a Node or a Segment
+        if (target instanceof Node) {
+            this.attachedToNode = target;
+            this.attachedToSegment = null;
+            this.position = 0;  // Not used for node attachment
+        } else if (target instanceof Segment) {
+            this.attachedToNode = null;
+            this.attachedToSegment = target;
+            this.position = Math.max(0, Math.min(1, position));  // 0-1 along segment
+        } else {
+            throw new Error('Weight must be attached to a Node or Segment');
+        }
+    }
+
+    static nextId = 0;
+    static minRadius = 10;
+    static maxScale = 2.5;  // Maximum radius is 2.5x minRadius
+    static minMass = 1;
+    static maxMass = 100;
+    static defaultMass = 10;
+
+    /**
+     * Get the visual radius based on mass.
+     * Uses square root scaling so area is proportional to mass.
+     * @returns {number} Radius in pixels
+     */
+    getRadius() {
+        // Square root scaling feels more natural (area ~ mass)
+        const t = (Math.sqrt(this.mass) - Math.sqrt(Weight.minMass)) /
+                  (Math.sqrt(Weight.maxMass) - Math.sqrt(Weight.minMass));
+        // Clamp t to [0, 1] in case mass is out of expected bounds
+        const tClamped = Math.max(0, Math.min(1, t));
+        return Weight.minRadius * (1 + (Weight.maxScale - 1) * tClamped);
+    }
+
+    /**
+     * Get the world position of this weight.
+     * For node attachment: returns node position.
+     * For segment attachment: interpolates along segment.
+     */
+    getPosition() {
+        if (this.attachedToNode) {
+            // During simulation, use body position if available
+            if (this.attachedToNode.body) {
+                return { ...this.attachedToNode.body.position };
+            }
+            return { x: this.attachedToNode.x, y: this.attachedToNode.y };
+        }
+
+        if (this.attachedToSegment) {
+            const seg = this.attachedToSegment;
+            // During simulation, use body positions
+            const posA = seg.nodeA.body
+                ? seg.nodeA.body.position
+                : { x: seg.nodeA.x, y: seg.nodeA.y };
+            const posB = seg.nodeB.body
+                ? seg.nodeB.body.position
+                : { x: seg.nodeB.x, y: seg.nodeB.y };
+
+            return {
+                x: posA.x + (posB.x - posA.x) * this.position,
+                y: posA.y + (posB.y - posA.y) * this.position
+            };
+        }
+
+        return { x: 0, y: 0 };
+    }
+
+    /**
+     * Set position along segment (0-1). Only valid for segment-attached weights.
+     */
+    setPosition(position) {
+        if (this.attachedToSegment) {
+            this.position = Math.max(0, Math.min(1, position));
+        }
+    }
+
+    /**
+     * Check if this weight is attached to the given target.
+     */
+    isAttachedTo(target) {
+        return this.attachedToNode === target || this.attachedToSegment === target;
+    }
+}
+
 // Structure Manager
 export class StructureManager {
     constructor() {
         this.nodes = [];
         this.segments = [];
+        this.weights = [];
         this.selectedNodes = [];
         this.selectedSegment = null;
+        this.selectedWeight = null;
     }
 
     addNode(x, y) {
@@ -148,9 +245,14 @@ export class StructureManager {
     }
 
     removeNode(node) {
-        // Remove all segments connected to this node
+        // Remove any weights attached to this node
+        this.weights = this.weights.filter(w => !w.isAttachedTo(node));
+
+        // Remove all segments connected to this node (and their attached weights)
         this.segments = this.segments.filter(seg => {
             if (seg.nodeA === node || seg.nodeB === node) {
+                // Remove weights attached to this segment
+                this.weights = this.weights.filter(w => !w.isAttachedTo(seg));
                 return false;
             }
             return true;
@@ -180,10 +282,40 @@ export class StructureManager {
     }
 
     removeSegment(segment) {
+        // Remove any weights attached to this segment
+        this.weights = this.weights.filter(w => !w.isAttachedTo(segment));
+
         const index = this.segments.indexOf(segment);
         if (index > -1) {
             this.segments.splice(index, 1);
         }
+    }
+
+    addWeight(target, position = 0.5, mass = Weight.defaultMass) {
+        const weight = new Weight(target, position, mass);
+        this.weights.push(weight);
+        return weight;
+    }
+
+    removeWeight(weight) {
+        const index = this.weights.indexOf(weight);
+        if (index > -1) {
+            this.weights.splice(index, 1);
+        }
+    }
+
+    findWeightAt(x, y) {
+        for (const weight of this.weights) {
+            const pos = weight.getPosition();
+            const dx = pos.x - x;
+            const dy = pos.y - y;
+            // Use weight's actual radius for hit detection
+            const hitRadius = weight.getRadius() * 1.5;
+            if (Math.sqrt(dx * dx + dy * dy) < hitRadius) {
+                return weight;
+            }
+        }
+        return null;
     }
 
     findNodeAt(x, y, radius = Node.radius * 2) {
@@ -246,8 +378,10 @@ export class StructureManager {
     clearSelection() {
         this.nodes.forEach(n => n.selected = false);
         this.segments.forEach(s => s.selected = false);
+        this.weights.forEach(w => w.selected = false);
         this.selectedNodes = [];
         this.selectedSegment = null;
+        this.selectedWeight = null;
     }
 
     selectNode(node) {
@@ -260,6 +394,12 @@ export class StructureManager {
         this.clearSelection();
         segment.selected = true;
         this.selectedSegment = segment;
+    }
+
+    selectWeight(weight) {
+        this.clearSelection();
+        weight.selected = true;
+        this.selectedWeight = weight;
     }
 
     updateAllStress() {
@@ -276,16 +416,20 @@ export class StructureManager {
     clear() {
         this.nodes = [];
         this.segments = [];
+        this.weights = [];
         this.selectedNodes = [];
         this.selectedSegment = null;
+        this.selectedWeight = null;
         Node.nextId = 0;
         Segment.nextId = 0;
+        Weight.nextId = 0;
     }
 
     getStats() {
         return {
             nodeCount: this.nodes.length,
             segmentCount: this.segments.length,
+            weightCount: this.weights.length,
             maxStress: this.updateAllStress()
         };
     }

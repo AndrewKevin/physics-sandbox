@@ -3,7 +3,7 @@
  * Handles drawing nodes, segments, and stress visualisation
  */
 
-import { Node, MATERIALS } from './structure.js';
+import { Node, Weight, MATERIALS } from './structure.js';
 
 export class Renderer {
     // Constants
@@ -28,6 +28,9 @@ export class Renderer {
             nodeHover: '#FFE600',
             nodeSelected: '#FFFFFF',
             segment: '#00F5D4',
+            weight: '#FF6B35',
+            weightHover: '#FFE600',
+            weightSelected: '#FFFFFF',
             ground: '#2D1B4E'
         };
 
@@ -280,6 +283,76 @@ export class Renderer {
         }
     }
 
+    drawWeight(weight, simulating = false) {
+        const ctx = this.ctx;
+        const radius = weight.getRadius();  // Dynamic radius based on mass
+
+        // Get position (interpolated if attached to segment)
+        const pos = weight.getPosition();
+
+        // Determine colors
+        let fillColor = this.colors.weight;
+        let strokeColor = '#FFFFFF';
+
+        if (weight.selected) {
+            strokeColor = this.colors.weightSelected;
+        } else if (weight.hovered) {
+            fillColor = this.colors.weightHover;
+        }
+
+        // Draw glow (scale with radius)
+        if (weight.selected || weight.hovered) {
+            ctx.shadowColor = fillColor;
+            ctx.shadowBlur = 10 + radius * 0.5;
+        }
+
+        // Draw weight as a filled circle with heavier border
+        ctx.fillStyle = fillColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = weight.selected ? 4 : 3;
+
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+
+        // Draw mass label (scale font with radius)
+        const fontSize = Math.round(8 + radius * 0.3);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(weight.mass.toFixed(0), pos.x, pos.y);
+
+        // Draw attachment line to segment midpoint if attached to segment
+        if (weight.attachedToSegment && simulating) {
+            const seg = weight.attachedToSegment;
+            const nodeA = seg.nodeA;
+            const nodeB = seg.nodeB;
+
+            const posA = nodeA.body ? nodeA.body.position : { x: nodeA.x, y: nodeA.y };
+            const posB = nodeB.body ? nodeB.body.position : { x: nodeB.x, y: nodeB.y };
+
+            // Attachment point on segment
+            const attachX = posA.x + (posB.x - posA.x) * weight.position;
+            const attachY = posA.y + (posB.y - posA.y) * weight.position;
+
+            // Draw thin line from attachment point to weight body
+            if (weight.body) {
+                ctx.strokeStyle = 'rgba(255, 107, 53, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                ctx.moveTo(attachX, attachY);
+                ctx.lineTo(weight.body.position.x, weight.body.position.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+    }
+
     drawConnectionPreview(startNode, endX, endY) {
         const ctx = this.ctx;
 
@@ -312,6 +385,11 @@ export class Renderer {
         // Draw segments first (behind nodes)
         for (const segment of structure.segments) {
             this.drawSegment(segment, simulating);
+        }
+
+        // Draw weights (on top of segments, behind nodes)
+        for (const weight of structure.weights) {
+            this.drawWeight(weight, simulating);
         }
 
         // Draw nodes

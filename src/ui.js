@@ -31,6 +31,7 @@ export class UIController {
             segmentTension: this.getElement('segment-tension'),
             statNodes: this.getElement('stat-nodes'),
             statSegments: this.getElement('stat-segments'),
+            statWeights: this.getElement('stat-weights'),
             statStress: this.getElement('stat-stress'),
             hint: document.querySelector('.hint')
         };
@@ -207,7 +208,7 @@ export class UIController {
     }
 
     updateSelection(selection) {
-        const { node, segment } = selection;
+        const { node, segment, weight } = selection;
 
         // Update selection info
         if (node) {
@@ -251,6 +252,22 @@ export class UIController {
             if (this.elements.segmentTension) {
                 this.elements.segmentTension.checked = segment.tensionOnly;
             }
+        } else if (weight) {
+            const pos = weight.getPosition();
+            const attachedTo = weight.attachedToNode
+                ? `Node #${weight.attachedToNode.id}`
+                : `Segment #${weight.attachedToSegment.id}`;
+
+            if (this.elements.selectionInfo) {
+                this.elements.selectionInfo.innerHTML = `
+                    <p><strong>Weight #${weight.id}</strong></p>
+                    <p>Mass: ${weight.mass} kg</p>
+                    <p>Attached to: ${attachedTo}</p>
+                    <p>Position: (${Math.round(pos.x)}, ${Math.round(pos.y)})</p>
+                    <p class="hint-text">Right-click to edit</p>
+                `;
+            }
+            this.elements.segmentOptions?.classList.add('disabled');
         } else {
             if (this.elements.selectionInfo) {
                 this.elements.selectionInfo.innerHTML = '<p class="empty-state">Nothing selected</p>';
@@ -265,6 +282,9 @@ export class UIController {
         }
         if (this.elements.statSegments) {
             this.elements.statSegments.textContent = stats.segmentCount;
+        }
+        if (this.elements.statWeights) {
+            this.elements.statWeights.textContent = stats.weightCount;
         }
 
         if (this.elements.statStress) {
