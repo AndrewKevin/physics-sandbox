@@ -33,9 +33,6 @@ class PhysicsSandbox {
         this.groundBody = null;
         this.animationId = null;
 
-        // Context menu state
-        this.contextMenuNode = null;
-
         // Initialise components
         console.log('[PhysicsSandbox] Starting initialization...');
         this.initCanvas();
@@ -134,41 +131,101 @@ class PhysicsSandbox {
     }
 
     initContextMenu() {
-        // Using vanilla-context-menu package for proper positioning
-        new VanillaContextMenu({
+        // Context menu will be created dynamically when needed
+        //
+        // Extensible Context Menu System:
+        // 1. Create a new get*MenuItems() method for your element type
+        // 2. Add element detection in onRightClick()
+        // 3. Call showContextMenu(event, menuItems) with your items
+        //
+        // Example:
+        //   const items = this.getMyElementMenuItems(element);
+        //   this.showContextMenu(e, items);
+        this.contextMenu = null;
+    }
+
+    /**
+     * Show a context menu with specified items at event position.
+     * @param {Event} event - The mouse event for positioning
+     * @param {Array} menuItems - Array of menu item objects {label, callback}
+     */
+    showContextMenu(event, menuItems) {
+        // Destroy previous menu if it exists
+        if (this.contextMenu) {
+            this.contextMenu.close();
+        }
+
+        // Create new context menu with provided items
+        this.contextMenu = new VanillaContextMenu({
             scope: this.canvas,
             customThemeClass: 'physics-context-menu',
             customClass: 'physics-context-menu',
             transitionDuration: 100,
-            menuItems: [
-                {
-                    label: '⚓  Toggle Fixed Point',
-                    callback: () => {
-                        // Verify node still exists in structure before acting
-                        if (this.contextMenuNode && this.structure.nodes.includes(this.contextMenuNode)) {
-                            this.contextMenuNode.setFixed(!this.contextMenuNode.fixed);
-                        }
-                        this.contextMenuNode = null;
-                    }
-                },
-                {
-                    label: '✕  Delete Node',
-                    callback: () => {
-                        // Verify node still exists in structure before acting
-                        if (this.contextMenuNode && this.structure.nodes.includes(this.contextMenuNode)) {
-                            if (this.connectStartNode === this.contextMenuNode) {
-                                this.connectStartNode = null;
-                            }
-                            this.structure.removeNode(this.contextMenuNode);
-                            this.ui.updateSelection({});
-                            this.updateStats();
-                        }
-                        this.contextMenuNode = null;
-                    }
-                }
-            ],
+            menuItems: menuItems,
             preventCloseOnClick: false
         });
+
+        // Show the menu at the event position
+        this.contextMenu.show(event);
+    }
+
+    /**
+     * Generate menu items for a node context menu.
+     * @param {Node} node - The node to create menu items for
+     * @returns {Array} Array of menu item objects
+     */
+    getNodeMenuItems(node) {
+        return [
+            {
+                label: `⚓  ${node.fixed ? 'Unpin' : 'Pin'} Node`,
+                callback: () => {
+                    if (this.structure.nodes.includes(node)) {
+                        node.setFixed(!node.fixed);
+                    }
+                }
+            },
+            {
+                label: '✕  Delete Node',
+                callback: () => {
+                    if (this.structure.nodes.includes(node)) {
+                        if (this.connectStartNode === node) {
+                            this.connectStartNode = null;
+                        }
+                        this.structure.removeNode(node);
+                        this.ui.updateSelection({});
+                        this.updateStats();
+                    }
+                }
+            }
+        ];
+    }
+
+    /**
+     * Generate menu items for a segment context menu.
+     * @param {Segment} segment - The segment to create menu items for
+     * @returns {Array} Array of menu item objects
+     */
+    getSegmentMenuItems(segment) {
+        // Placeholder for future segment menu items
+        return [
+            {
+                label: '⚙️  Edit Properties',
+                callback: () => {
+                    this.structure.selectSegment(segment);
+                    this.ui.updateSelection({ segment });
+                }
+            },
+            {
+                label: '✕  Delete Segment',
+                callback: () => {
+                    if (this.structure.segments.includes(segment)) {
+                        this.structure.removeSegment(segment);
+                        this.ui.updateSelection({});
+                        this.updateStats();
+                    }
+                }
+            }
+        ];
     }
 
     initEvents() {
@@ -176,7 +233,7 @@ class PhysicsSandbox {
         this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
         this.canvas.addEventListener('click', (e) => this.onClick(e));
         this.canvas.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
+            // Don't prevent default yet - let onRightClick decide
             this.onRightClick(e);
         });
 
@@ -362,21 +419,36 @@ class PhysicsSandbox {
     }
 
     onRightClick(e) {
+        // Always prevent default browser context menu
+        e.preventDefault();
+
         if (this.isSimulating) return;
 
         const pos = this.getMousePos(e);
-        const node = this.structure.findNodeAt(pos.x, pos.y);
 
+        // Check for node first (higher priority)
+        const node = this.structure.findNodeAt(pos.x, pos.y);
         if (node) {
-            // Store node for context menu callbacks
-            this.contextMenuNode = node;
-            // Library handles showing the menu
-        } else {
-            // Cancel current action (no context menu for empty space)
-            this.connectStartNode = null;
-            this.structure.clearSelection();
-            this.ui.updateSelection({});
+            const menuItems = this.getNodeMenuItems(node);
+            this.showContextMenu(e, menuItems);
+            return;
         }
+
+        // Check for segment
+        const segment = this.structure.findSegmentAt(pos.x, pos.y);
+        if (segment) {
+            const menuItems = this.getSegmentMenuItems(segment);
+            this.showContextMenu(e, menuItems);
+            return;
+        }
+
+        // Right-click on empty space - cancel current action
+        if (this.connectStartNode) {
+            this.connectStartNode.selected = false;
+            this.connectStartNode = null;
+        }
+        this.structure.clearSelection();
+        this.ui.updateSelection({});
     }
 
     handleConnect(x, y) {
@@ -638,7 +710,6 @@ class PhysicsSandbox {
         this.stopSimulation();
         this.structure.clear();
         this.connectStartNode = null;
-        this.contextMenuNode = null;
         this.hoveredNode = null;
         this.hoveredSegment = null;
         this.ui.updateSelection({});
