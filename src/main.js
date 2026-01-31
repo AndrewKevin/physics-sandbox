@@ -29,28 +29,26 @@ class PhysicsSandbox {
         this.hoveredNode = null;
         this.hoveredSegment = null;
 
+        // Drag state
+        this.isDragging = false;
+        this.draggedNode = null;
+        this.dragStartPos = null;
+        this.wasJustDragging = false;
+
         // Physics references
         this.groundBody = null;
         this.animationId = null;
 
         // Initialise components
-        console.log('[PhysicsSandbox] Starting initialization...');
         this.initCanvas();
-        console.log('[PhysicsSandbox] Canvas initialized');
         this.initStructure();
-        console.log('[PhysicsSandbox] Structure initialized');
         this.initPhysics();
-        console.log('[PhysicsSandbox] Physics initialized');
         this.initUI();
-        console.log('[PhysicsSandbox] UI initialized');
         this.initContextMenu();
-        console.log('[PhysicsSandbox] Context menu initialized');
         this.initEvents();
-        console.log('[PhysicsSandbox] Events initialized');
 
         // Start render loop
         this.animate();
-        console.log('[PhysicsSandbox] Animation started - initialization complete');
     }
 
     initCanvas() {
@@ -230,7 +228,9 @@ class PhysicsSandbox {
 
     initEvents() {
         // Mouse events on canvas
+        this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
         this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
+        this.canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
         this.canvas.addEventListener('click', (e) => this.onClick(e));
         this.canvas.addEventListener('contextmenu', (e) => {
             // Don't prevent default yet - let onRightClick decide
@@ -241,6 +241,9 @@ class PhysicsSandbox {
         this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
         this.canvas.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
         this.canvas.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false });
+
+        // Keyboard events
+        window.addEventListener('keydown', (e) => this.onKeyDown(e));
 
         // Window resize
         window.addEventListener('resize', () => {
@@ -272,6 +275,38 @@ class PhysicsSandbox {
         };
     }
 
+    onKeyDown(e) {
+        // Cancel drag on Escape
+        if (e.key === 'Escape' && this.isDragging) {
+            // Restore original position
+            if (this.draggedNode && this.dragStartPos) {
+                this.draggedNode.updatePosition(this.dragStartPos.x, this.dragStartPos.y);
+            }
+            this.isDragging = false;
+            this.draggedNode = null;
+            this.dragStartPos = null;
+            this.wasJustDragging = false;
+        }
+    }
+
+    /**
+     * Clamp position to canvas bounds, keeping node fully visible.
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @returns {{x: number, y: number}} Clamped position
+     */
+    clampToCanvas(x, y) {
+        const minX = Node.radius;
+        const maxX = this.renderer.width - Node.radius;
+        const minY = Node.radius;
+        const maxY = this.groundY - Node.radius;
+
+        return {
+            x: Math.max(minX, Math.min(maxX, x)),
+            y: Math.max(minY, Math.min(maxY, y))
+        };
+    }
+
     onTouchStart(e) {
         if (e.touches.length === 1) {
             e.preventDefault();
@@ -279,6 +314,15 @@ class PhysicsSandbox {
             this.mouseX = pos.x;
             this.mouseY = pos.y;
             this.touchStartPos = pos;
+
+            // Check if touching a node for potential drag
+            if (!this.isSimulating) {
+                const node = this.structure.findNodeAt(pos.x, pos.y);
+                if (node) {
+                    this.draggedNode = node;
+                    this.dragStartPos = { x: pos.x, y: pos.y };
+                }
+            }
         }
     }
 
@@ -288,6 +332,20 @@ class PhysicsSandbox {
             const pos = this.getTouchPos(e.touches[0]);
             this.mouseX = pos.x;
             this.mouseY = pos.y;
+
+            // Handle dragging
+            if (!this.isSimulating && this.draggedNode && this.dragStartPos) {
+                const dx = pos.x - this.dragStartPos.x;
+                const dy = pos.y - this.dragStartPos.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance > PhysicsSandbox.TOUCH_TAP_THRESHOLD || this.isDragging) {
+                    this.isDragging = true;
+                    const clamped = this.clampToCanvas(pos.x, pos.y);
+                    this.draggedNode.updatePosition(clamped.x, clamped.y);
+                    return;
+                }
+            }
 
             // Update hover states for visual feedback
             if (!this.isSimulating) {
@@ -321,23 +379,91 @@ class PhysicsSandbox {
             e.preventDefault();
             const pos = this.getTouchPos(e.changedTouches[0]);
 
-            // Only trigger click if finger didn't move much (tap vs drag)
-            const dx = pos.x - this.touchStartPos.x;
-            const dy = pos.y - this.touchStartPos.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            const draggedNode = this.draggedNode;
 
-            if (distance < PhysicsSandbox.TOUCH_TAP_THRESHOLD) {
-                // Simulate click at touch position
-                this.onClick({ clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY });
+            // Clear drag state
+            this.draggedNode = null;
+            this.dragStartPos = null;
+
+            if (this.isDragging) {
+                this.isDragging = false;
+
+                // Update rest lengths of connected segments after drag
+                for (const segment of this.structure.segments) {
+                    if (segment.nodeA === draggedNode || segment.nodeB === draggedNode) {
+                        segment.restLength = segment.calculateLength();
+                    }
+                }
+            } else {
+                // Only trigger click if finger didn't move much (tap vs drag)
+                const dx = pos.x - this.touchStartPos.x;
+                const dy = pos.y - this.touchStartPos.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < PhysicsSandbox.TOUCH_TAP_THRESHOLD) {
+                    // Simulate click at touch position (skip wasJustDragging check as we handle it here)
+                    this.wasJustDragging = false;
+                    this.onClick({ clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY });
+                }
             }
         }
         this.touchStartPos = null;
+    }
+
+    onMouseDown(e) {
+        if (this.isSimulating || e.button !== 0) return;
+
+        const pos = this.getMousePos(e);
+        const node = this.structure.findNodeAt(pos.x, pos.y);
+
+        if (node) {
+            this.draggedNode = node;
+            this.dragStartPos = { x: pos.x, y: pos.y };
+        }
+    }
+
+    onMouseUp(e) {
+        if (e.button !== 0) return;
+
+        const draggedNode = this.draggedNode;
+
+        // Clear drag state
+        this.draggedNode = null;
+        this.dragStartPos = null;
+
+        if (this.isDragging) {
+            this.isDragging = false;
+            this.wasJustDragging = true;
+
+            // Update rest lengths of connected segments after drag
+            for (const segment of this.structure.segments) {
+                if (segment.nodeA === draggedNode || segment.nodeB === draggedNode) {
+                    segment.restLength = segment.calculateLength();
+                }
+            }
+        }
     }
 
     onMouseMove(e) {
         const pos = this.getMousePos(e);
         this.mouseX = pos.x;
         this.mouseY = pos.y;
+
+        // Handle dragging
+        if (!this.isSimulating && this.draggedNode && this.dragStartPos) {
+            const dx = pos.x - this.dragStartPos.x;
+            const dy = pos.y - this.dragStartPos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Start dragging after moving past threshold
+            if (distance > PhysicsSandbox.TOUCH_TAP_THRESHOLD || this.isDragging) {
+                this.isDragging = true;
+                const clamped = this.clampToCanvas(pos.x, pos.y);
+                this.draggedNode.updatePosition(clamped.x, clamped.y);
+                this.canvas.style.cursor = 'grabbing';
+                return;
+            }
+        }
 
         // Update hover states and cursor
         if (!this.isSimulating) {
@@ -356,13 +482,13 @@ class PhysicsSandbox {
             if (node) {
                 node.hovered = true;
                 this.hoveredNode = node;
-                this.canvas.style.cursor = this.getCursorForMode(true);
+                this.canvas.style.cursor = this.getCursorForMode(true, true);
             } else {
                 const segment = this.structure.findSegmentAt(pos.x, pos.y);
                 if (segment) {
                     segment.hovered = true;
                     this.hoveredSegment = segment;
-                    this.canvas.style.cursor = this.getCursorForMode(true);
+                    this.canvas.style.cursor = this.getCursorForMode(true, false);
                 } else {
                     this.canvas.style.cursor = this.getCursorForMode(false);
                 }
@@ -372,17 +498,17 @@ class PhysicsSandbox {
         }
     }
 
-    getCursorForMode(overElement) {
+    getCursorForMode(overElement, isNode = false) {
         if (overElement) {
             switch (this.mode) {
                 case 'connect':
-                    return 'crosshair';
+                    return isNode ? 'grab' : 'crosshair';
                 case 'select':
-                    return 'pointer';
+                    return isNode ? 'grab' : 'pointer';
                 case 'delete':
                     return 'not-allowed';
                 default:
-                    return 'crosshair';
+                    return isNode ? 'grab' : 'crosshair';
             }
         } else {
             switch (this.mode) {
@@ -400,6 +526,12 @@ class PhysicsSandbox {
 
     onClick(e) {
         if (this.isSimulating) return;
+
+        // Skip click if we just finished dragging
+        if (this.wasJustDragging) {
+            this.wasJustDragging = false;
+            return;
+        }
 
         const pos = this.getMousePos(e);
 
@@ -712,6 +844,10 @@ class PhysicsSandbox {
         this.connectStartNode = null;
         this.hoveredNode = null;
         this.hoveredSegment = null;
+        this.isDragging = false;
+        this.draggedNode = null;
+        this.dragStartPos = null;
+        this.wasJustDragging = false;
         this.ui.updateSelection({});
         this.updateStats();
     }

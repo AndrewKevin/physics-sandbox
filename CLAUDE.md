@@ -10,6 +10,7 @@ Interactive 2D physics sandbox for exploring load and stress. Users click to con
 - **Select mode**: Click nodes/segments to view and edit properties.
 - **Delete mode**: Click to remove nodes/segments.
 - **Right-click context menu**: Element-specific menus (nodes: Pin/Delete; segments: Edit Properties/Delete). Empty space cancels current action.
+- **Node dragging**: Click and drag any node to reposition it. Connected segments update automatically. Rest lengths recalculate on drop.
 
 ## Tech Stack
 
