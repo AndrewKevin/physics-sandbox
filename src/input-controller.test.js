@@ -76,6 +76,7 @@ describe('InputController', () => {
             expect(eventTypes).toContain('mousedown');
             expect(eventTypes).toContain('mousemove');
             expect(eventTypes).toContain('mouseup');
+            expect(eventTypes).toContain('mouseleave');
             expect(eventTypes).toContain('click');
             expect(eventTypes).toContain('contextmenu');
         });
@@ -230,6 +231,40 @@ describe('InputController', () => {
 
             expect(event.preventDefault).toHaveBeenCalled();
             expect(options.onRightClick).not.toHaveBeenCalled();
+        });
+
+        it('should cancel selection box when mouse leaves canvas', () => {
+            const mockSelectionBox = {
+                isTracking: true,
+                cancelSelection: vi.fn()
+            };
+            options.getSelectionBox = vi.fn(() => mockSelectionBox);
+
+            // Re-create controller with selection box
+            controller = new InputController(canvas, options);
+            controller.onMouseLeave({});
+
+            expect(mockSelectionBox.cancelSelection).toHaveBeenCalled();
+        });
+
+        it('should not error when mouse leaves canvas without selection box', () => {
+            options.getSelectionBox = undefined;
+            controller = new InputController(canvas, options);
+
+            expect(() => controller.onMouseLeave({})).not.toThrow();
+        });
+
+        it('should not cancel selection box on mouse leave if not tracking', () => {
+            const mockSelectionBox = {
+                isTracking: false,
+                cancelSelection: vi.fn()
+            };
+            options.getSelectionBox = vi.fn(() => mockSelectionBox);
+            controller = new InputController(canvas, options);
+
+            controller.onMouseLeave({});
+
+            expect(mockSelectionBox.cancelSelection).not.toHaveBeenCalled();
         });
     });
 

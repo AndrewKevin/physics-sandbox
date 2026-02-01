@@ -44,6 +44,7 @@ export class InputController {
         this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
         this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
         this.canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
+        this.canvas.addEventListener('mouseleave', (e) => this.onMouseLeave(e));
         this.canvas.addEventListener('click', (e) => this.onClick(e));
         this.canvas.addEventListener('contextmenu', (e) => this.onRightClick(e));
 
@@ -200,6 +201,14 @@ export class InputController {
 
         const pos = this.getMousePos(e);
         this.options.onRightClick(e, pos.x, pos.y);
+    }
+
+    onMouseLeave(e) {
+        // Cancel selection box when cursor leaves canvas
+        const selectionBox = this.options.getSelectionBox?.();
+        if (selectionBox?.isTracking) {
+            selectionBox.cancelSelection();
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
