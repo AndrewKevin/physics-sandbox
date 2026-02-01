@@ -2,32 +2,35 @@
 
 ## Project Overview
 
-Interactive 2D physics sandbox for exploring load and stress. Users click to connect points (nodes are created automatically), creating segments (beams, springs, cables) and simulating physics to observe stress distribution.
+Interactive 2D physics sandbox for exploring load and stress. Users create nodes via right-click menu, then connect them to form segments (beams, springs, cables). Run simulation to observe stress distribution.
 
 ## Interaction Model
 
-- **Connect mode** (default): Click two points to create a segment. Nodes are auto-created at click positions, or existing nodes are reused.
-- **Select mode**: Click nodes/segments to view and edit properties.
-- **Delete mode**: Click to remove nodes/segments.
-- **Right-click context menu**: Element-specific menus (nodes: Pin/Delete; segments: Edit Properties/Delete). Empty space cancels current action.
+- **Left-click**: Always selects the clicked element (node, segment, or weight). In connect mode, clicking two existing nodes creates a segment between them.
+- **Right-click on element**: Shows context menu with element-specific options (nodes: Pin/Add Weight/Delete; segments: Edit Properties/Add Weight/Delete; weights: show popup editor).
+- **Right-click on empty space**: Shows menu with "Add Node" option to create a node at that position.
+- **Delete/Backspace key**: Immediately deletes the currently selected element.
 - **Node dragging**: Click and drag any node to reposition it. Connected segments update automatically. Rest lengths recalculate on drop.
+- **Escape key**: Cancels current drag operation (restores node to original position).
 
 ## Tech Stack
 
 - **Matter.js** — 2D physics engine (constraints, bodies, gravity)
-- **vanilla-context-menu** — Right-click context menus with viewport boundary handling
 - **Vite** — Build tool
 - **Vanilla JavaScript** — No framework
 - **HTML5 Canvas** — Custom rendering via `renderer.js`
+- **Custom ContextMenu** — Right-click context menus with viewport boundary handling (in `context-menu.js`)
 
 ## Architecture
 
 ```
 src/
-├── main.js        # PhysicsSandbox class, simulation lifecycle, Matter.js integration
-├── structure.js   # Node, Segment, StructureManager classes, MATERIALS definitions
-├── renderer.js    # Canvas rendering, stress colours, visual feedback
-└── ui.js          # UIController, DOM event handling, callbacks
+├── main.js          # PhysicsSandbox class, simulation lifecycle, Matter.js integration
+├── structure.js     # Node, Segment, Weight, StructureManager classes, MATERIALS definitions
+├── renderer.js      # Canvas rendering, stress colours, visual feedback
+├── ui.js            # UIController, DOM event handling, callbacks
+├── context-menu.js  # Custom context menu with viewport boundary handling
+└── weight-popup.js  # Weight property editor popup with scrubber controls
 ```
 
 ## Key Principles
@@ -41,8 +44,8 @@ When implementing common UI patterns or utilities (context menus, drag-and-drop,
 
 **Important**: Package selection must be validated by the project owner before installation. Present 2-3 options with trade-offs (size, popularity, features) and get approval.
 
-Current packages used:
-- `vanilla-context-menu` — Node right-click context menus
+Current external packages used:
+- `matter-js` — Physics engine
 
 ### Rely on Matter.js
 
@@ -224,7 +227,8 @@ When modifying physics behaviour:
 
 When modifying context menus or element interactions:
 - [ ] Right-click on each element type shows correct menu
-- [ ] Right-click on empty space shows no menu / cancels action
+- [ ] Right-click on empty space shows "Add Node" menu
 - [ ] Menu items reference correct element (not stale closures)
 - [ ] Menus close properly after action
 - [ ] Detection order is correct (specific elements before general)
+- [ ] Delete/Backspace deletes selected element immediately

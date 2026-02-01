@@ -361,6 +361,56 @@ class PhysicsSandbox {
             this.dragStartMousePos = null;
             this.dragStartNodePos = null;
             this.wasJustDragging = false;
+            return;
+        }
+
+        // Delete selected element on Delete/Backspace
+        if ((e.key === 'Delete' || e.key === 'Backspace') && !this.isSimulating) {
+            // Don't handle if typing in an input element
+            const tagName = e.target.tagName;
+            if (tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA') return;
+
+            e.preventDefault();
+            this.deleteSelectedElement();
+        }
+    }
+
+    /**
+     * Delete the currently selected element (weight, node, or segment).
+     */
+    deleteSelectedElement() {
+        const selectedWeight = this.structure.selectedWeight;
+        const selectedNode = this.structure.selectedNode;
+        const selectedSegment = this.structure.selectedSegment;
+
+        if (selectedWeight) {
+            // Close popup if it's showing this weight
+            if (this.weightPopup?.isOpen() && this.weightPopup.weight === selectedWeight) {
+                this.weightPopup.close();
+            }
+            this.structure.removeWeight(selectedWeight);
+            this.ui.updateSelection({});
+            this.updateStats();
+        } else if (selectedNode) {
+            // Close popup if it's showing a weight attached to this node
+            if (this.weightPopup?.isOpen() && this.weightPopup.weight?.isAttachedTo(selectedNode)) {
+                this.weightPopup.close();
+            }
+            // Clear connectStartNode if we're deleting it
+            if (this.connectStartNode === selectedNode) {
+                this.connectStartNode = null;
+            }
+            this.structure.removeNode(selectedNode);
+            this.ui.updateSelection({});
+            this.updateStats();
+        } else if (selectedSegment) {
+            // Close popup if it's showing a weight attached to this segment
+            if (this.weightPopup?.isOpen() && this.weightPopup.weight?.isAttachedTo(selectedSegment)) {
+                this.weightPopup.close();
+            }
+            this.structure.removeSegment(selectedSegment);
+            this.ui.updateSelection({});
+            this.updateStats();
         }
     }
 
@@ -681,15 +731,32 @@ class PhysicsSandbox {
             return;
         }
 
-        // Right-click on empty space - cancel current action and close any open menus
-        this.closeAllMenus();
+        // Right-click on empty space - show menu with "Add Node" option
+        const menuItems = this.getEmptySpaceMenuItems(pos.x, pos.y);
+        this.showContextMenu(e, menuItems);
+    }
 
-        if (this.connectStartNode) {
-            this.connectStartNode.selected = false;
-            this.connectStartNode = null;
-        }
-        this.structure.clearSelection();
-        this.ui.updateSelection({});
+    /**
+     * Generate menu items for empty space context menu.
+     * @param {number} x - X position for new node
+     * @param {number} y - Y position for new node
+     * @returns {Array} Array of menu item objects
+     */
+    getEmptySpaceMenuItems(x, y) {
+        // Clamp position above ground
+        const clampedY = Math.min(y, this.groundY - Node.radius);
+
+        return [
+            {
+                label: '📍  Add Node',
+                callback: () => {
+                    const node = this.structure.addNode(x, clampedY);
+                    this.structure.selectNode(node);
+                    this.ui.updateSelection({ node });
+                    this.updateStats();
+                }
+            }
+        ];
     }
 
     /**
@@ -706,15 +773,16 @@ class PhysicsSandbox {
     }
 
     handleConnect(x, y) {
-        // Clamp position above ground
-        if (y > this.groundY - Node.radius) {
-            y = this.groundY - Node.radius;
-        }
+        // Find existing node - no longer auto-creates nodes
+        const node = this.structure.findNodeAt(x, y);
 
-        // Find existing node or create new one
-        let node = this.structure.findNodeAt(x, y);
         if (!node) {
-            node = this.structure.addNode(x, y);
+            // Clicked empty space - clear connect start if any
+            if (this.connectStartNode) {
+                this.connectStartNode.selected = false;
+                this.connectStartNode = null;
+            }
+            return;
         }
 
         if (!this.connectStartNode) {

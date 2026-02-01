@@ -127,10 +127,9 @@ export class UIController {
                 break;
             case '3':
             case 'd':
-            case 'delete':
-            case 'backspace':
                 this.setMode('delete');
                 break;
+            // Note: Delete/Backspace now immediately deletes selected element (handled in main.js)
             case ' ':
                 e.preventDefault();
                 this.toggleSimulation();
