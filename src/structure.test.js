@@ -616,4 +616,75 @@ describe('StructureManager - Multi-select', () => {
             expect(segments).toHaveLength(0);
         });
     });
+
+    describe('getWeightsForNodes', () => {
+        it('should return weights attached to specified nodes', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 100);
+            const weight1 = structure.addWeight(node1, 0, 10);
+            structure.addWeight(node2, 0, 20);
+
+            const weights = structure.getWeightsForNodes([node1]);
+
+            expect(weights).toHaveLength(1);
+            expect(weights).toContain(weight1);
+        });
+
+        it('should return empty array when no weights attached', () => {
+            const node1 = structure.addNode(100, 100);
+
+            const weights = structure.getWeightsForNodes([node1]);
+
+            expect(weights).toHaveLength(0);
+        });
+
+        it('should not return segment-attached weights', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 100);
+            const segment = structure.addSegment(node1, node2);
+            structure.addWeight(segment, 0.5, 10);
+
+            const weights = structure.getWeightsForNodes([node1, node2]);
+
+            expect(weights).toHaveLength(0);
+        });
+    });
+
+    describe('getWeightsForSegments', () => {
+        it('should return weights attached to specified segments', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 100);
+            const node3 = structure.addNode(300, 100);
+            const seg1 = structure.addSegment(node1, node2);
+            const seg2 = structure.addSegment(node2, node3);
+            const weight1 = structure.addWeight(seg1, 0.5, 10);
+            structure.addWeight(seg2, 0.5, 20);
+
+            const weights = structure.getWeightsForSegments([seg1]);
+
+            expect(weights).toHaveLength(1);
+            expect(weights).toContain(weight1);
+        });
+
+        it('should return empty array when no weights attached', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 100);
+            const segment = structure.addSegment(node1, node2);
+
+            const weights = structure.getWeightsForSegments([segment]);
+
+            expect(weights).toHaveLength(0);
+        });
+
+        it('should not return node-attached weights', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 100);
+            const segment = structure.addSegment(node1, node2);
+            structure.addWeight(node1, 0, 10);
+
+            const weights = structure.getWeightsForSegments([segment]);
+
+            expect(weights).toHaveLength(0);
+        });
+    });
 });

@@ -9,6 +9,8 @@ describe('ClipboardController', () => {
     let options;
     let mockNodes;
     let mockSegments;
+    let mockNodeWeights;
+    let mockSegmentWeights;
 
     beforeEach(() => {
         // Create mock nodes
@@ -40,13 +42,24 @@ describe('ClipboardController', () => {
             }
         ];
 
+        // Create mock weights
+        mockNodeWeights = [
+            { attachedToNode: mockNodes[0], attachedToSegment: null, position: 0, mass: 15 }
+        ];
+        mockSegmentWeights = [
+            { attachedToNode: null, attachedToSegment: mockSegments[0], position: 0.3, mass: 25 }
+        ];
+
         options = {
             getSelectedNodes: vi.fn(() => mockNodes),
             getSegmentsBetweenNodes: vi.fn(() => mockSegments),
+            getWeightsForNodes: vi.fn(() => mockNodeWeights),
+            getWeightsForSegments: vi.fn(() => mockSegmentWeights),
             createNode: vi.fn((x, y, fixed, mass) => ({ x, y, fixed, mass })),
             createSegment: vi.fn((nodeA, nodeB, material, props) => ({
                 nodeA, nodeB, material, ...props
             })),
+            createWeight: vi.fn((target, position, mass) => ({ target, position, mass })),
             onPasteStart: vi.fn(),
             onPasteMove: vi.fn(),
             onPasteEnd: vi.fn(),
@@ -91,6 +104,19 @@ describe('ClipboardController', () => {
             controller.copy();
 
             expect(controller.clipboardSegmentCount).toBe(2);
+        });
+
+        it('should copy weights attached to nodes', () => {
+            controller.copy();
+
+            expect(controller.clipboardWeightCount).toBe(2); // 1 node weight + 1 segment weight
+        });
+
+        it('should copy weights attached to segments', () => {
+            controller.copy();
+
+            // Weight count includes both node and segment weights
+            expect(controller.clipboardWeightCount).toBeGreaterThanOrEqual(1);
         });
 
         it('should return false when no nodes selected', () => {
@@ -230,6 +256,31 @@ describe('ClipboardController', () => {
             expect(options.onPasteEnd).toHaveBeenCalled();
             expect(result.nodes).toHaveLength(3);
             expect(result.segments).toHaveLength(2);
+            expect(result.weights).toHaveLength(2);
+        });
+
+        it('should create weights attached to new nodes', () => {
+            controller.commitPaste();
+
+            // One node weight should be created
+            expect(options.createWeight).toHaveBeenCalled();
+            const nodeWeightCall = options.createWeight.mock.calls.find(
+                call => call[0].x !== undefined // node targets have x property
+            );
+            expect(nodeWeightCall).toBeDefined();
+            expect(nodeWeightCall[2]).toBe(15); // mass
+        });
+
+        it('should create weights attached to new segments', () => {
+            controller.commitPaste();
+
+            // One segment weight should be created with position 0.3
+            const segmentWeightCall = options.createWeight.mock.calls.find(
+                call => call[0].nodeA !== undefined // segment targets have nodeA property
+            );
+            expect(segmentWeightCall).toBeDefined();
+            expect(segmentWeightCall[1]).toBe(0.3); // position
+            expect(segmentWeightCall[2]).toBe(25); // mass
         });
 
         it('should exit paste mode after commit', () => {

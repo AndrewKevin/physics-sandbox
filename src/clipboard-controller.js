@@ -1,6 +1,6 @@
 /**
  * ClipboardController
- * Manages copy/paste operations for nodes and segments.
+ * Manages copy/paste operations for nodes, segments, and weights.
  * Supports paste preview mode where copied elements follow the cursor.
  */
 
@@ -9,18 +9,24 @@ export class ClipboardController {
      * @param {Object} options - Configuration options
      * @param {Function} options.getSelectedNodes - Returns array of selected nodes
      * @param {Function} options.getSegmentsBetweenNodes - (nodes) => Segment[] - Find segments connecting nodes
+     * @param {Function} options.getWeightsForNodes - (nodes) => Weight[] - Find weights attached to nodes
+     * @param {Function} options.getWeightsForSegments - (segments) => Weight[] - Find weights attached to segments
      * @param {Function} options.createNode - (x, y, fixed, mass) => Node - Create a new node
      * @param {Function} options.createSegment - (nodeA, nodeB, material, props) => Segment - Create a segment
+     * @param {Function} options.createWeight - (target, position, mass) => Weight - Create a weight
      * @param {Function} [options.onPasteStart] - Called when paste preview starts
      * @param {Function} [options.onPasteMove] - Called during paste preview (previewData)
-     * @param {Function} [options.onPasteEnd] - Called when paste completes (newNodes)
+     * @param {Function} [options.onPasteEnd] - Called when paste completes (newNodes, newSegments, newWeights)
      * @param {Function} [options.onPasteCancel] - Called when paste is cancelled
      */
     constructor(options = {}) {
         this.getSelectedNodes = options.getSelectedNodes ?? (() => []);
         this.getSegmentsBetweenNodes = options.getSegmentsBetweenNodes ?? (() => []);
+        this.getWeightsForNodes = options.getWeightsForNodes ?? (() => []);
+        this.getWeightsForSegments = options.getWeightsForSegments ?? (() => []);
         this.createNode = options.createNode ?? (() => null);
         this.createSegment = options.createSegment ?? (() => null);
+        this.createWeight = options.createWeight ?? (() => null);
 
         this.onPasteStart = options.onPasteStart ?? (() => {});
         this.onPasteMove = options.onPasteMove ?? (() => {});
@@ -36,7 +42,7 @@ export class ClipboardController {
     }
 
     /**
-     * Copy the currently selected nodes and segments between them.
+     * Copy the currently selected nodes, segments between them, and attached weights.
      * @returns {boolean} True if something was copied
      */
     copy() {
@@ -48,6 +54,10 @@ export class ClipboardController {
 
         // Get segments connecting the selected nodes
         const segments = this.getSegmentsBetweenNodes(nodes);
+
+        // Get weights attached to nodes and segments
+        const nodeWeights = this.getWeightsForNodes(nodes);
+        const segmentWeights = this.getWeightsForSegments(segments);
 
         // Store node data with relative positions
         this.clipboard = {
@@ -69,7 +79,23 @@ export class ClipboardController {
                     compressionOnly: segment.compressionOnly,
                     tensionOnly: segment.tensionOnly
                 };
-            })
+            }),
+            weights: [
+                // Weights attached to nodes
+                ...nodeWeights.map(weight => ({
+                    attachedToNodeIndex: nodes.indexOf(weight.attachedToNode),
+                    attachedToSegmentIndex: null,
+                    position: 0,
+                    mass: weight.mass
+                })),
+                // Weights attached to segments
+                ...segmentWeights.map(weight => ({
+                    attachedToNodeIndex: null,
+                    attachedToSegmentIndex: segments.indexOf(weight.attachedToSegment),
+                    position: weight.position,
+                    mass: weight.mass
+                }))
+            ]
         };
 
         return true;
@@ -151,8 +177,8 @@ export class ClipboardController {
     }
 
     /**
-     * Commit the paste operation, creating actual nodes and segments.
-     * @returns {Object|null} { nodes: Node[], segments: Segment[] } or null if not pasting
+     * Commit the paste operation, creating actual nodes, segments, and weights.
+     * @returns {Object|null} { nodes: Node[], segments: Segment[], weights: Weight[] } or null if not pasting
      */
     commitPaste() {
         if (!this.isPasting || !this.previewPos || !this.clipboard) {
@@ -161,6 +187,7 @@ export class ClipboardController {
 
         const newNodes = [];
         const newSegments = [];
+        const newWeights = [];
 
         // Create nodes at preview positions
         for (const nodeData of this.clipboard.nodes) {
@@ -189,13 +216,30 @@ export class ClipboardController {
             }
         }
 
+        // Create weights attached to new nodes/segments
+        for (const weightData of this.clipboard.weights ?? []) {
+            let target = null;
+            if (weightData.attachedToNodeIndex !== null) {
+                target = newNodes[weightData.attachedToNodeIndex];
+            } else if (weightData.attachedToSegmentIndex !== null) {
+                target = newSegments[weightData.attachedToSegmentIndex];
+            }
+
+            if (target) {
+                const weight = this.createWeight(target, weightData.position, weightData.mass);
+                if (weight) {
+                    newWeights.push(weight);
+                }
+            }
+        }
+
         // Clear paste state
         this.isPasting = false;
         this.previewPos = null;
 
-        this.onPasteEnd(newNodes, newSegments);
+        this.onPasteEnd(newNodes, newSegments, newWeights);
 
-        return { nodes: newNodes, segments: newSegments };
+        return { nodes: newNodes, segments: newSegments, weights: newWeights };
     }
 
     /**
@@ -239,6 +283,14 @@ export class ClipboardController {
      */
     get clipboardSegmentCount() {
         return this.clipboard?.segments?.length ?? 0;
+    }
+
+    /**
+     * Get the number of weights in clipboard.
+     * @returns {number}
+     */
+    get clipboardWeightCount() {
+        return this.clipboard?.weights?.length ?? 0;
     }
 
     /**

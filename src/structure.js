@@ -597,6 +597,30 @@ export class StructureManager {
         );
     }
 
+    /**
+     * Find all weights attached to the given nodes.
+     * @param {Node[]} nodes - Array of nodes to check
+     * @returns {Weight[]} Array of weights attached to those nodes
+     */
+    getWeightsForNodes(nodes) {
+        const nodeSet = new Set(nodes);
+        return this.weights.filter(weight =>
+            weight.attachedToNode && nodeSet.has(weight.attachedToNode)
+        );
+    }
+
+    /**
+     * Find all weights attached to the given segments.
+     * @param {Segment[]} segments - Array of segments to check
+     * @returns {Weight[]} Array of weights attached to those segments
+     */
+    getWeightsForSegments(segments) {
+        const segmentSet = new Set(segments);
+        return this.weights.filter(weight =>
+            weight.attachedToSegment && segmentSet.has(weight.attachedToSegment)
+        );
+    }
+
     updateAllStress() {
         let maxStress = 0;
         for (const segment of this.segments) {

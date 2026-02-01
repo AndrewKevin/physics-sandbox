@@ -125,6 +125,8 @@ class PhysicsSandbox {
         this.clipboard = new ClipboardController({
             getSelectedNodes: () => this.structure.selectedNodes,
             getSegmentsBetweenNodes: (nodes) => this.structure.getSegmentsBetweenNodes(nodes),
+            getWeightsForNodes: (nodes) => this.structure.getWeightsForNodes(nodes),
+            getWeightsForSegments: (segments) => this.structure.getWeightsForSegments(segments),
             createNode: (x, y, fixed, mass) => {
                 const node = this.structure.addNode(x, y);
                 node.fixed = fixed;
@@ -141,6 +143,9 @@ class PhysicsSandbox {
                 }
                 return segment;
             },
+            createWeight: (target, position, mass) => {
+                return this.structure.addWeight(target, position, mass);
+            },
             onPasteStart: () => {
                 // Clear selection during paste preview
                 this.structure.clearSelection();
@@ -150,7 +155,7 @@ class PhysicsSandbox {
                 // Update paste preview state for rendering
                 this.pastePreviewState = previewData;
             },
-            onPasteEnd: (newNodes, newSegments) => {
+            onPasteEnd: (newNodes, newSegments, newWeights) => {
                 // Select the newly pasted nodes
                 this.structure.selectMultipleNodes(newNodes);
                 this.ui.updateSelection({ nodes: newNodes });
