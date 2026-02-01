@@ -692,37 +692,93 @@ class PhysicsSandbox {
 
         const pos = this.getMousePos(e);
 
-        // Check for weight first (smallest, highest priority)
-        const weight = this.structure.findWeightAt(pos.x, pos.y);
-        if (weight) {
-            // Close all existing menus first
+        // Find all elements at this position
+        const elements = this.findAllElementsAt(pos.x, pos.y);
+
+        if (elements.length === 0) {
+            // Right-click on empty space - show menu with "Add Node" option
+            const menuItems = this.getEmptySpaceMenuItems(pos.x, pos.y);
+            this.showContextMenu(e, menuItems);
+        } else if (elements.length === 1) {
+            // Single element - show its menu directly
+            this.showElementMenu(elements[0], e, pos);
+        } else {
+            // Multiple elements - show picker menu
+            const menuItems = this.getElementPickerMenuItems(elements, e, pos);
+            this.showContextMenu(e, menuItems);
+        }
+    }
+
+    /**
+     * Find all elements at a given position.
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @returns {Array} Array of {type, element} objects
+     */
+    findAllElementsAt(x, y) {
+        const elements = [];
+
+        const weight = this.structure.findWeightAt(x, y);
+        if (weight) elements.push({ type: 'weight', element: weight });
+
+        const node = this.structure.findNodeAt(x, y);
+        if (node) elements.push({ type: 'node', element: node });
+
+        const segment = this.structure.findSegmentAt(x, y);
+        if (segment) elements.push({ type: 'segment', element: segment });
+
+        return elements;
+    }
+
+    /**
+     * Show the appropriate menu for an element.
+     * @param {Object} item - {type, element} object
+     * @param {Event} e - The mouse event
+     * @param {Object} pos - {x, y} canvas position
+     */
+    showElementMenu(item, e, pos) {
+        if (item.type === 'weight') {
             this.closeAllMenus();
-            // Show weight popup directly for editing
-            this.structure.selectWeight(weight);
-            this.ui.updateSelection({ weight });
-            this.weightPopup.show(weight, e.clientX, e.clientY);
-            return;
-        }
-
-        // Check for node (higher priority than segment)
-        const node = this.structure.findNodeAt(pos.x, pos.y);
-        if (node) {
-            const menuItems = this.getNodeMenuItems(node);
+            this.structure.selectWeight(item.element);
+            this.ui.updateSelection({ weight: item.element });
+            this.weightPopup.show(item.element, e.clientX, e.clientY);
+        } else if (item.type === 'node') {
+            const menuItems = this.getNodeMenuItems(item.element);
             this.showContextMenu(e, menuItems);
-            return;
-        }
-
-        // Check for segment
-        const segment = this.structure.findSegmentAt(pos.x, pos.y);
-        if (segment) {
-            const menuItems = this.getSegmentMenuItems(segment, pos.x, pos.y);
+        } else if (item.type === 'segment') {
+            const menuItems = this.getSegmentMenuItems(item.element, pos.x, pos.y);
             this.showContextMenu(e, menuItems);
-            return;
         }
+    }
 
-        // Right-click on empty space - show menu with "Add Node" option
-        const menuItems = this.getEmptySpaceMenuItems(pos.x, pos.y);
-        this.showContextMenu(e, menuItems);
+    /**
+     * Generate picker menu items for overlapping elements.
+     * @param {Array} elements - Array of {type, element} objects
+     * @param {Event} e - The mouse event (for submenu positioning)
+     * @param {Object} pos - {x, y} canvas position
+     * @returns {Array} Array of menu item objects
+     */
+    getElementPickerMenuItems(elements, e, pos) {
+        return elements.map(item => {
+            let label;
+            if (item.type === 'weight') {
+                label = `⚖️  Weight #${item.element.id}`;
+            } else if (item.type === 'node') {
+                label = `📍  Node #${item.element.id}`;
+            } else if (item.type === 'segment') {
+                label = `📏  Segment #${item.element.id}`;
+            }
+
+            return {
+                label,
+                callback: () => {
+                    // Small delay to allow current menu to close
+                    setTimeout(() => {
+                        this.showElementMenu(item, e, pos);
+                    }, 50);
+                }
+            };
+        });
     }
 
     /**
