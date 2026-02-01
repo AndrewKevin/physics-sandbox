@@ -120,8 +120,11 @@ export class Segment {
         this.inTension = length > this.restLength;
         this.inCompression = length < this.restLength;
 
-        // Amplify for visualisation (stiff constraints show small deformations)
-        this.stress = Math.min(strain * 50, 1);
+        // Stress is proportional to internal force: Force = Stiffness × Strain
+        // This means a stiff beam under small deformation shows similar stress
+        // to a soft spring under large deformation (when under equal load)
+        const force = strain * this.stiffness;
+        this.stress = Math.min(force * 400, 1);
 
         return this.stress;
     }
@@ -148,7 +151,7 @@ export class Weight {
         this.selected = false;
         this.hovered = false;
         this.body = null;  // Matter.js body reference
-        this.constraint = null;  // Matter.js constraint to attachment point
+        this.constraints = null;  // Matter.js constraint(s) to attachment point(s)
 
         // Attachment - either a Node or a Segment
         if (target instanceof Node) {
@@ -166,7 +169,7 @@ export class Weight {
 
     static nextId = 0;
     static minRadius = 10;
-    static maxScale = 2.5;  // Maximum radius is 2.5x minRadius
+    static maxScale = 3;  // Maximum radius is 3x minRadius
     static minMass = 1;
     static maxMass = 100;
     static defaultMass = 10;
@@ -187,27 +190,23 @@ export class Weight {
 
     /**
      * Get the world position of this weight.
-     * For node attachment: returns node position.
-     * For segment attachment: interpolates along segment.
+     * During simulation, returns the physics body position.
+     * Otherwise, returns node position or interpolates along segment.
      */
     getPosition() {
+        // During simulation, use actual physics body position
+        if (this.body) {
+            return { ...this.body.position };
+        }
+
         if (this.attachedToNode) {
-            // During simulation, use body position if available
-            if (this.attachedToNode.body) {
-                return { ...this.attachedToNode.body.position };
-            }
             return { x: this.attachedToNode.x, y: this.attachedToNode.y };
         }
 
         if (this.attachedToSegment) {
             const seg = this.attachedToSegment;
-            // During simulation, use body positions
-            const posA = seg.nodeA.body
-                ? seg.nodeA.body.position
-                : { x: seg.nodeA.x, y: seg.nodeA.y };
-            const posB = seg.nodeB.body
-                ? seg.nodeB.body.position
-                : { x: seg.nodeB.x, y: seg.nodeB.y };
+            const posA = { x: seg.nodeA.x, y: seg.nodeA.y };
+            const posB = { x: seg.nodeB.x, y: seg.nodeB.y };
 
             return {
                 x: posA.x + (posB.x - posA.x) * this.position,

@@ -145,7 +145,7 @@ describe('PhysicsController - User Intent', () => {
         it('should create constraints to attach weights', () => {
             controller.start(mockStructure);
 
-            expect(mockStructure.weights[0].constraint).not.toBe(null);
+            expect(mockStructure.weights[0].constraints).not.toBe(null);
         });
 
         it('should clear weight bodies on stop', () => {
@@ -153,7 +153,7 @@ describe('PhysicsController - User Intent', () => {
             controller.stop(mockStructure);
 
             expect(mockStructure.weights[0].body).toBe(null);
-            expect(mockStructure.weights[0].constraint).toBe(null);
+            expect(mockStructure.weights[0].constraints).toBe(null);
         });
     });
 });
@@ -336,23 +336,27 @@ describe('PhysicsController', () => {
     });
 
     describe('updateWeightConstraints', () => {
-        it('should update pointB for segment-attached weights', () => {
+        it('should update constraint lengths for segment-attached weights', () => {
             controller.init();
+
+            const constraintA = { length: 50 };
+            const constraintB = { length: 50 };
 
             const weight = {
                 attachedToSegment: {
                     nodeA: { body: { position: { x: 0, y: 0 } } },
-                    nodeB: { body: { position: { x: 100, y: 0 } } }
+                    nodeB: { body: { position: { x: 200, y: 0 } } }  // Stretched to 200
                 },
                 position: 0.5,
-                constraint: { pointB: { x: 0, y: 0 } }
+                constraints: [constraintA, constraintB]
             };
 
             const structure = { weights: [weight] };
             controller.updateWeightConstraints(structure);
 
-            expect(weight.constraint.pointB.x).toBe(50);
-            expect(weight.constraint.pointB.y).toBe(0);
+            // Constraints should update to match current segment length (200)
+            expect(constraintA.length).toBe(100);  // 0.5 * 200
+            expect(constraintB.length).toBe(100);  // 0.5 * 200
         });
 
         it('should ignore node-attached weights', () => {
@@ -361,14 +365,13 @@ describe('PhysicsController', () => {
             const weight = {
                 attachedToNode: { body: {} },
                 attachedToSegment: null,
-                constraint: { pointB: { x: 10, y: 10 } }
+                constraints: [{ bodyA: {}, bodyB: {} }]
             };
 
             const structure = { weights: [weight] };
-            controller.updateWeightConstraints(structure);
 
-            // Should not modify
-            expect(weight.constraint.pointB.x).toBe(10);
+            // Should not throw
+            expect(() => controller.updateWeightConstraints(structure)).not.toThrow();
         });
     });
 
