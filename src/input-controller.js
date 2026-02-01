@@ -15,12 +15,15 @@ export class InputController {
      * @param {Function} options.getDrag - () => DragController
      * @param {Function} options.getHover - () => HoverController
      * @param {Function} [options.getSelectionBox] - () => SelectionBoxController|null
+     * @param {Function} [options.getClipboard] - () => ClipboardController|null
      * @param {Function} options.onMousePosChange - (x, y) => void
      * @param {Function} options.onClick - (x, y) => void
      * @param {Function} [options.onShiftClick] - (x, y) => void - Called for shift+click
      * @param {Function} options.onRightClick - (e, x, y) => void
      * @param {Function} options.onEscape - () => void
      * @param {Function} options.onDelete - () => void
+     * @param {Function} [options.onCopy] - () => void - Called for Ctrl+C
+     * @param {Function} [options.onPaste] - (x, y) => void - Called for Ctrl+V with current mouse pos
      * @param {Function} options.onWindowResize - () => void
      */
     constructor(canvas, options) {
@@ -100,6 +103,13 @@ export class InputController {
         if (this.options.isSimulating() || e.button !== 0) return;
 
         const pos = this.getMousePos(e);
+        const clipboard = this.options.getClipboard?.();
+
+        // Don't start drag/selection during paste preview
+        if (clipboard?.isActive) {
+            return;
+        }
+
         const node = this.options.findNodeAt(pos.x, pos.y);
         const drag = this.options.getDrag();
         const selectionBox = this.options.getSelectionBox?.();
@@ -135,6 +145,14 @@ export class InputController {
         const drag = this.options.getDrag();
         const hover = this.options.getHover();
         const selectionBox = this.options.getSelectionBox?.();
+        const clipboard = this.options.getClipboard?.();
+
+        // Handle paste preview (highest priority - follows cursor)
+        if (!this.options.isSimulating() && clipboard?.isActive) {
+            clipboard.updatePreview(pos);
+            this.canvas.style.cursor = 'copy';
+            return;
+        }
 
         // Handle node dragging (takes priority)
         if (!this.options.isSimulating() && drag.isTracking) {
@@ -168,6 +186,13 @@ export class InputController {
 
         const drag = this.options.getDrag();
         const selectionBox = this.options.getSelectionBox?.();
+        const clipboard = this.options.getClipboard?.();
+
+        // Commit paste if in paste preview mode
+        if (clipboard?.isActive) {
+            clipboard.commitPaste();
+            return;
+        }
 
         // Skip click if we just finished dragging
         if (drag.shouldSuppressClick) {
@@ -196,6 +221,13 @@ export class InputController {
         e.preventDefault();
 
         if (this.options.isSimulating()) return;
+
+        // Cancel paste preview if active
+        const clipboard = this.options.getClipboard?.();
+        if (clipboard?.isActive) {
+            clipboard.cancelPaste();
+            return;
+        }
 
         // Cancel selection box if active
         const selectionBox = this.options.getSelectionBox?.();
@@ -344,7 +376,18 @@ export class InputController {
     // ─────────────────────────────────────────────────────────────────────────
 
     onKeyDown(e) {
+        // Don't handle keyboard shortcuts if typing in input elements
+        const tagName = e.target.tagName;
+        const isTyping = tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA';
+
         if (e.key === 'Escape') {
+            // Cancel paste preview if active
+            const clipboard = this.options.getClipboard?.();
+            if (clipboard?.isActive) {
+                clipboard.cancelPaste();
+                return;
+            }
+
             // Cancel selection box if active
             const selectionBox = this.options.getSelectionBox?.();
             if (selectionBox?.isTracking) {
@@ -355,13 +398,28 @@ export class InputController {
             return;
         }
 
-        if ((e.key === 'Delete' || e.key === 'Backspace') && !this.options.isSimulating()) {
-            // Don't handle if typing in an input element
-            const tagName = e.target.tagName;
-            if (tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA') return;
+        // Copy: Ctrl+C or Cmd+C
+        if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !isTyping) {
+            if (!this.options.isSimulating()) {
+                this.options.onCopy?.();
+            }
+            return;
+        }
 
-            // Don't delete during drag
+        // Paste: Ctrl+V or Cmd+V
+        if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !isTyping) {
+            if (!this.options.isSimulating()) {
+                this.options.onPaste?.();
+            }
+            return;
+        }
+
+        if ((e.key === 'Delete' || e.key === 'Backspace') && !this.options.isSimulating()) {
+            if (isTyping) return;
+
+            // Don't delete during drag or paste
             if (this.options.getDrag().isActive) return;
+            if (this.options.getClipboard?.()?.isActive) return;
 
             e.preventDefault();
             this.options.onDelete();

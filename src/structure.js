@@ -584,6 +584,19 @@ export class StructureManager {
         return this.selectedNodes.length > 1;
     }
 
+    /**
+     * Find all segments where both endpoints are in the given node set.
+     * Used for copy/paste to get segments between selected nodes.
+     * @param {Node[]} nodes - Array of nodes to check
+     * @returns {Segment[]} Array of segments connecting the nodes
+     */
+    getSegmentsBetweenNodes(nodes) {
+        const nodeSet = new Set(nodes);
+        return this.segments.filter(segment =>
+            nodeSet.has(segment.nodeA) && nodeSet.has(segment.nodeB)
+        );
+    }
+
     updateAllStress() {
         let maxStress = 0;
         for (const segment of this.segments) {

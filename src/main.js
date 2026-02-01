@@ -13,6 +13,7 @@ import { PhysicsController } from './physics-controller.js';
 import { ContextMenuController } from './context-menu-controller.js';
 import { InputController } from './input-controller.js';
 import { SelectionBoxController } from './selection-box-controller.js';
+import { ClipboardController } from './clipboard-controller.js';
 import { StateModal } from './state-modal.js';
 import {
     saveViewSettings,
@@ -119,6 +120,51 @@ class PhysicsSandbox {
 
         // Selection box render state
         this.selectionBoxState = null;
+
+        // Clipboard controller for copy/paste
+        this.clipboard = new ClipboardController({
+            getSelectedNodes: () => this.structure.selectedNodes,
+            getSegmentsBetweenNodes: (nodes) => this.structure.getSegmentsBetweenNodes(nodes),
+            createNode: (x, y, fixed, mass) => {
+                const node = this.structure.addNode(x, y);
+                node.fixed = fixed;
+                node.mass = mass;
+                return node;
+            },
+            createSegment: (nodeA, nodeB, material, props) => {
+                const segment = this.structure.addSegment(nodeA, nodeB, material);
+                if (segment && props) {
+                    segment.stiffness = props.stiffness;
+                    segment.damping = props.damping;
+                    segment.compressionOnly = props.compressionOnly;
+                    segment.tensionOnly = props.tensionOnly;
+                }
+                return segment;
+            },
+            onPasteStart: () => {
+                // Clear selection during paste preview
+                this.structure.clearSelection();
+                this.ui.updateSelection({});
+            },
+            onPasteMove: (previewData) => {
+                // Update paste preview state for rendering
+                this.pastePreviewState = previewData;
+            },
+            onPasteEnd: (newNodes, newSegments) => {
+                // Select the newly pasted nodes
+                this.structure.selectMultipleNodes(newNodes);
+                this.ui.updateSelection({ nodes: newNodes });
+                this.pastePreviewState = null;
+                this.updateStats();
+                this.markStructureDirty();
+            },
+            onPasteCancel: () => {
+                this.pastePreviewState = null;
+            }
+        });
+
+        // Paste preview render state
+        this.pastePreviewState = null;
 
         // Animation reference
         this.animationId = null;
@@ -277,6 +323,7 @@ class PhysicsSandbox {
             getDrag: () => this.drag,
             getHover: () => this.hover,
             getSelectionBox: () => this.selectionBox,
+            getClipboard: () => this.clipboard,
             onMousePosChange: (x, y) => {
                 this.mouseX = x;
                 this.mouseY = y;
@@ -295,6 +342,16 @@ class PhysicsSandbox {
             },
             onEscape: () => this.handleEscape(),
             onDelete: () => this.deleteSelectedElement(),
+            onCopy: () => {
+                if (this.clipboard.copy()) {
+                    // Could show a toast/feedback here
+                }
+            },
+            onPaste: () => {
+                if (this.clipboard.hasContent) {
+                    this.clipboard.startPaste({ x: this.mouseX, y: this.mouseY });
+                }
+            },
             onWindowResize: () => {
                 this.groundY = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
                 if (this.isSimulating) {
@@ -671,6 +728,8 @@ class PhysicsSandbox {
         this.structure.clear();
         this.hover.reset();
         this.drag.reset();
+        this.clipboard.reset();
+        this.pastePreviewState = null;
         this.preSimulationSnapshot = null;
         this.ui.updateSelection({});
         this.updateStats();
@@ -735,7 +794,8 @@ class PhysicsSandbox {
             mouseX: this.mouseX,
             mouseY: this.mouseY,
             showStressLabels: this.ui.showStressLabels,
-            selectionBox: this.selectionBoxState
+            selectionBox: this.selectionBoxState,
+            pastePreview: this.pastePreviewState
         });
 
         this.animationId = requestAnimationFrame(() => this.animate());

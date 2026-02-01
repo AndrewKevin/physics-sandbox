@@ -567,4 +567,53 @@ describe('StructureManager - Multi-select', () => {
             expect(structure.hasMultipleNodesSelected()).toBe(true);
         });
     });
+
+    describe('getSegmentsBetweenNodes', () => {
+        it('should return segments where both endpoints are in node set', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 100);
+            const node3 = structure.addNode(300, 100);
+            const seg1 = structure.addSegment(node1, node2);
+            const seg2 = structure.addSegment(node2, node3);
+
+            const segments = structure.getSegmentsBetweenNodes([node1, node2]);
+
+            expect(segments).toHaveLength(1);
+            expect(segments).toContain(seg1);
+            expect(segments).not.toContain(seg2);
+        });
+
+        it('should return all segments when all nodes included', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 100);
+            const node3 = structure.addNode(300, 100);
+            structure.addSegment(node1, node2);
+            structure.addSegment(node2, node3);
+            structure.addSegment(node1, node3);
+
+            const segments = structure.getSegmentsBetweenNodes([node1, node2, node3]);
+
+            expect(segments).toHaveLength(3);
+        });
+
+        it('should return empty array when only one node provided', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 100);
+            structure.addSegment(node1, node2);
+
+            const segments = structure.getSegmentsBetweenNodes([node1]);
+
+            expect(segments).toHaveLength(0);
+        });
+
+        it('should return empty array for empty node set', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 100);
+            structure.addSegment(node1, node2);
+
+            const segments = structure.getSegmentsBetweenNodes([]);
+
+            expect(segments).toHaveLength(0);
+        });
+    });
 });

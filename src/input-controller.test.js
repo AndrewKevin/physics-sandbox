@@ -322,7 +322,7 @@ describe('InputController', () => {
 
     describe('Keyboard handler', () => {
         it('should call onEscape for Escape key', () => {
-            controller.onKeyDown({ key: 'Escape' });
+            controller.onKeyDown({ key: 'Escape', target: { tagName: 'CANVAS' } });
 
             expect(options.onEscape).toHaveBeenCalled();
         });
@@ -379,6 +379,133 @@ describe('InputController', () => {
             });
 
             expect(options.onDelete).not.toHaveBeenCalled();
+        });
+
+        it('should call onCopy for Ctrl+C', () => {
+            options.onCopy = vi.fn();
+            controller = new InputController(canvas, options);
+
+            controller.onKeyDown({
+                key: 'c',
+                ctrlKey: true,
+                target: { tagName: 'CANVAS' }
+            });
+
+            expect(options.onCopy).toHaveBeenCalled();
+        });
+
+        it('should call onCopy for Cmd+C on Mac', () => {
+            options.onCopy = vi.fn();
+            controller = new InputController(canvas, options);
+
+            controller.onKeyDown({
+                key: 'c',
+                metaKey: true,
+                target: { tagName: 'CANVAS' }
+            });
+
+            expect(options.onCopy).toHaveBeenCalled();
+        });
+
+        it('should call onPaste for Ctrl+V', () => {
+            options.onPaste = vi.fn();
+            controller = new InputController(canvas, options);
+
+            controller.onKeyDown({
+                key: 'v',
+                ctrlKey: true,
+                target: { tagName: 'CANVAS' }
+            });
+
+            expect(options.onPaste).toHaveBeenCalled();
+        });
+
+        it('should not call onCopy when typing in input', () => {
+            options.onCopy = vi.fn();
+            controller = new InputController(canvas, options);
+
+            controller.onKeyDown({
+                key: 'c',
+                ctrlKey: true,
+                target: { tagName: 'INPUT' }
+            });
+
+            expect(options.onCopy).not.toHaveBeenCalled();
+        });
+
+        it('should not call onCopy when simulating', () => {
+            options.onCopy = vi.fn();
+            options.isSimulating.mockReturnValue(true);
+            controller = new InputController(canvas, options);
+
+            controller.onKeyDown({
+                key: 'c',
+                ctrlKey: true,
+                target: { tagName: 'CANVAS' }
+            });
+
+            expect(options.onCopy).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('Paste preview handling', () => {
+        let mockClipboard;
+
+        beforeEach(() => {
+            mockClipboard = {
+                isActive: false,
+                updatePreview: vi.fn(),
+                commitPaste: vi.fn(),
+                cancelPaste: vi.fn()
+            };
+            options.getClipboard = vi.fn(() => mockClipboard);
+            controller = new InputController(canvas, options);
+        });
+
+        it('should update paste preview on mouse move when active', () => {
+            mockClipboard.isActive = true;
+
+            controller.onMouseMove({ clientX: 100, clientY: 100 });
+
+            expect(mockClipboard.updatePreview).toHaveBeenCalled();
+            expect(canvas.style.cursor).toBe('copy');
+        });
+
+        it('should commit paste on click when active', () => {
+            mockClipboard.isActive = true;
+
+            controller.onClick({ clientX: 100, clientY: 100 });
+
+            expect(mockClipboard.commitPaste).toHaveBeenCalled();
+        });
+
+        it('should cancel paste on right-click when active', () => {
+            mockClipboard.isActive = true;
+
+            controller.onRightClick({
+                clientX: 100,
+                clientY: 100,
+                preventDefault: vi.fn()
+            });
+
+            expect(mockClipboard.cancelPaste).toHaveBeenCalled();
+        });
+
+        it('should cancel paste on Escape when active', () => {
+            mockClipboard.isActive = true;
+
+            controller.onKeyDown({ key: 'Escape', target: { tagName: 'CANVAS' } });
+
+            expect(mockClipboard.cancelPaste).toHaveBeenCalled();
+        });
+
+        it('should not start drag during paste preview', () => {
+            mockClipboard.isActive = true;
+            options.findNodeAt.mockReturnValue({ id: 1 });
+
+            controller.onMouseDown({ button: 0, clientX: 100, clientY: 100 });
+
+            expect(mockDrag.beginPotentialDrag).not.toHaveBeenCalled();
         });
     });
 

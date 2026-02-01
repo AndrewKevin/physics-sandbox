@@ -535,6 +535,69 @@ export class Renderer {
         }
     }
 
+    /**
+     * Draw paste preview (ghost nodes and segments following cursor).
+     * @param {Object} pastePreview - { nodes: [{x, y, fixed}], segments: [{fromIndex, toIndex}] }
+     */
+    drawPastePreview(pastePreview) {
+        if (!pastePreview) return;
+
+        const ctx = this.ctx;
+        const { nodes, segments } = pastePreview;
+
+        // Draw ghost segments first (behind nodes)
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = '#00F5D4';
+        ctx.lineWidth = 4;
+        ctx.setLineDash([8, 4]);
+
+        for (const seg of segments) {
+            const nodeA = nodes[seg.fromIndex];
+            const nodeB = nodes[seg.toIndex];
+            if (nodeA && nodeB) {
+                ctx.beginPath();
+                ctx.moveTo(nodeA.x, nodeA.y);
+                ctx.lineTo(nodeB.x, nodeB.y);
+                ctx.stroke();
+            }
+        }
+
+        ctx.setLineDash([]);
+
+        // Draw ghost nodes
+        const radius = Node.radius;
+        for (const node of nodes) {
+            const fillColor = node.fixed ? this.colors.nodeFixed : this.colors.node;
+
+            // Glow
+            ctx.shadowColor = fillColor;
+            ctx.shadowBlur = 15;
+
+            // Node circle
+            ctx.fillStyle = fillColor;
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.shadowBlur = 0;
+
+            // Fixed indicator
+            if (node.fixed) {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('⚓', node.x, node.y);
+            }
+        }
+
+        ctx.globalAlpha = 1;
+    }
+
     render(structure, state = {}) {
         const {
             simulating = false,
@@ -542,7 +605,8 @@ export class Renderer {
             mouseX = 0,
             mouseY = 0,
             showStressLabels = false,
-            selectionBox = null
+            selectionBox = null,
+            pastePreview = null
         } = state;
 
         this.clear();
@@ -572,14 +636,20 @@ export class Renderer {
         }
 
         // Draw connection preview from all selected nodes to cursor
+        // (but not during paste preview)
         const selectedNodes = structure.selectedNodes;
-        if (!simulating && selectedNodes.length > 0) {
+        if (!simulating && selectedNodes.length > 0 && !pastePreview) {
             this.drawConnectionPreview(selectedNodes, mouseX, mouseY);
         }
 
         // Draw selection box overlay (on top of everything)
         if (!simulating && selectionBox?.rect) {
             this.drawSelectionBox(selectionBox.rect, selectionBox.nodesInside || []);
+        }
+
+        // Draw paste preview (on top of everything)
+        if (!simulating && pastePreview) {
+            this.drawPastePreview(pastePreview);
         }
     }
 }
