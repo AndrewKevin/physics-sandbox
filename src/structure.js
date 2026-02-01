@@ -303,6 +303,69 @@ export class StructureManager {
         }
     }
 
+    /**
+     * Split a segment at a given position, creating a new node and two new segments.
+     * Preserves material properties and reassigns any attached weights.
+     * @param {Segment} segment - The segment to split
+     * @param {number} position - Position along segment (0-1) where to split
+     * @returns {{ node: Node, segmentA: Segment, segmentB: Segment }} The created elements
+     */
+    splitSegment(segment, position) {
+        // Clamp position to avoid creating zero-length segments
+        const t = Math.max(0.1, Math.min(0.9, position));
+
+        // Calculate the new node position
+        const newX = segment.nodeA.x + (segment.nodeB.x - segment.nodeA.x) * t;
+        const newY = segment.nodeA.y + (segment.nodeB.y - segment.nodeA.y) * t;
+
+        // Store original properties
+        const { material, stiffness, damping, compressionOnly, tensionOnly } = segment;
+        const originalNodeA = segment.nodeA;
+        const originalNodeB = segment.nodeB;
+
+        // Find weights attached to this segment before removal
+        const attachedWeights = this.weights.filter(w => w.attachedToSegment === segment);
+
+        // Remove the original segment (but preserve weights - we'll reassign them)
+        const segmentIndex = this.segments.indexOf(segment);
+        if (segmentIndex > -1) {
+            this.segments.splice(segmentIndex, 1);
+        }
+
+        // Create the new node
+        const newNode = this.addNode(newX, newY);
+
+        // Create two new segments with same properties
+        const segmentA = new Segment(originalNodeA, newNode, material);
+        segmentA.stiffness = stiffness;
+        segmentA.damping = damping;
+        segmentA.compressionOnly = compressionOnly;
+        segmentA.tensionOnly = tensionOnly;
+        this.segments.push(segmentA);
+
+        const segmentB = new Segment(newNode, originalNodeB, material);
+        segmentB.stiffness = stiffness;
+        segmentB.damping = damping;
+        segmentB.compressionOnly = compressionOnly;
+        segmentB.tensionOnly = tensionOnly;
+        this.segments.push(segmentB);
+
+        // Reassign weights to the appropriate new segment
+        for (const weight of attachedWeights) {
+            if (weight.position < t) {
+                // Weight is on the first segment (nodeA to newNode)
+                weight.attachedToSegment = segmentA;
+                weight.position = weight.position / t;
+            } else {
+                // Weight is on the second segment (newNode to nodeB)
+                weight.attachedToSegment = segmentB;
+                weight.position = (weight.position - t) / (1 - t);
+            }
+        }
+
+        return { node: newNode, segmentA, segmentB };
+    }
+
     addWeight(target, position = 0.5, mass = Weight.defaultMass) {
         const weight = new Weight(target, position, mass);
         this.weights.push(weight);

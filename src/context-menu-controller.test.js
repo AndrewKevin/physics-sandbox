@@ -24,6 +24,7 @@ describe('ContextMenuController - User Intent', () => {
             addWeight: vi.fn((segment, pos) => ({ id: 1, segment, position: pos })),
             selectWeight: vi.fn(),
             removeWeight: vi.fn(),
+            clearSelection: vi.fn(),
             selectedWeight: null
         };
 
@@ -105,7 +106,7 @@ describe('ContextMenuController - User Intent', () => {
             expect(node.setFixed).toHaveBeenCalledWith(true);
         });
 
-        it('clicking Delete should remove node', () => {
+        it('clicking Delete should remove node and clear selection', () => {
             const node = { id: 1, fixed: false, setFixed: vi.fn() };
             mockStructure.nodes = [node];
 
@@ -113,6 +114,8 @@ describe('ContextMenuController - User Intent', () => {
             items[1].callback();
 
             expect(mockStructure.removeNode).toHaveBeenCalledWith(node);
+            expect(mockStructure.clearSelection).toHaveBeenCalled();
+            expect(mockUi.updateSelection).toHaveBeenCalledWith({});
             expect(onStatsUpdate).toHaveBeenCalled();
         });
     });
@@ -126,12 +129,20 @@ describe('ContextMenuController - User Intent', () => {
             expect(items[0].label).toContain('Edit Properties');
         });
 
+        it('should show Add Node option', () => {
+            const segment = { id: 1, nodeA: { x: 0, y: 100 }, nodeB: { x: 200, y: 100 } };
+
+            const items = controller.getSegmentMenuItems(segment, 100, 100);
+
+            expect(items[1].label).toContain('Add Node');
+        });
+
         it('should show Add Weight option', () => {
             const segment = { id: 1, nodeA: { x: 0, y: 100 }, nodeB: { x: 200, y: 100 } };
 
             const items = controller.getSegmentMenuItems(segment, 100, 100);
 
-            expect(items[1].label).toContain('Add Weight');
+            expect(items[2].label).toContain('Add Weight');
         });
 
         it('should show Delete Segment option', () => {
@@ -139,7 +150,21 @@ describe('ContextMenuController - User Intent', () => {
 
             const items = controller.getSegmentMenuItems(segment, 100, 100);
 
-            expect(items[2].label).toContain('Delete');
+            expect(items[3].label).toContain('Delete');
+        });
+
+        it('clicking Add Node should split segment at click position', () => {
+            const segment = { id: 1, nodeA: { x: 0, y: 100 }, nodeB: { x: 200, y: 100 } };
+            const newNode = { id: 2, x: 100, y: 100 };
+            mockStructure.segments = [segment];
+            mockStructure.splitSegment = vi.fn(() => ({ node: newNode, segmentA: {}, segmentB: {} }));
+
+            const items = controller.getSegmentMenuItems(segment, 100, 100);
+            items[1].callback();
+
+            expect(mockStructure.splitSegment).toHaveBeenCalledWith(segment, 0.5); // Midpoint
+            expect(mockStructure.selectNode).toHaveBeenCalledWith(newNode);
+            expect(onStatsUpdate).toHaveBeenCalled();
         });
 
         it('clicking Add Weight should create weight at click position', () => {
@@ -147,9 +172,36 @@ describe('ContextMenuController - User Intent', () => {
             mockStructure.segments = [segment];
 
             const items = controller.getSegmentMenuItems(segment, 100, 100);
-            items[1].callback();
+            items[2].callback();
 
             expect(mockStructure.addWeight).toHaveBeenCalledWith(segment, 0.5); // Midpoint
+            expect(onStatsUpdate).toHaveBeenCalled();
+        });
+
+        it('clicking Delete Segment should remove segment and clear selection', () => {
+            const segment = { id: 1, nodeA: { x: 0, y: 100 }, nodeB: { x: 200, y: 100 } };
+            mockStructure.segments = [segment];
+
+            const items = controller.getSegmentMenuItems(segment, 100, 100);
+            items[3].callback();
+
+            expect(mockStructure.removeSegment).toHaveBeenCalledWith(segment);
+            expect(mockStructure.clearSelection).toHaveBeenCalled();
+            expect(mockUi.updateSelection).toHaveBeenCalledWith({});
+            expect(onStatsUpdate).toHaveBeenCalled();
+        });
+    });
+
+    describe('User deletes weight via popup', () => {
+        it('clicking Delete should remove weight and clear selection', () => {
+            const weight = { id: 1 };
+            mockStructure.weights = [weight];
+
+            controller.weightPopup.onDelete(weight);
+
+            expect(mockStructure.removeWeight).toHaveBeenCalledWith(weight);
+            expect(mockStructure.clearSelection).toHaveBeenCalled();
+            expect(mockUi.updateSelection).toHaveBeenCalledWith({});
             expect(onStatsUpdate).toHaveBeenCalled();
         });
     });

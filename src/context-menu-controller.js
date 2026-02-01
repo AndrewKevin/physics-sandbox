@@ -40,6 +40,7 @@ export class ContextMenuController {
         this.weightPopup.onDelete = (weight) => {
             if (this.structure.weights.includes(weight)) {
                 this.structure.removeWeight(weight);
+                this.structure.clearSelection();
                 this.ui.updateSelection({});
                 this.onStatsUpdate();
             }
@@ -135,6 +136,7 @@ export class ContextMenuController {
                 callback: () => {
                     if (this.structure.nodes.includes(node)) {
                         this.structure.removeNode(node);
+                        this.structure.clearSelection();
                         this.ui.updateSelection({});
                         this.onStatsUpdate();
                     }
@@ -160,6 +162,18 @@ export class ContextMenuController {
                 }
             },
             {
+                label: '📍  Add Node',
+                callback: () => {
+                    if (this.structure.segments.includes(segment)) {
+                        const position = getPositionOnSegment(segment, clickX, clickY);
+                        const { node } = this.structure.splitSegment(segment, position);
+                        this.structure.selectNode(node);
+                        this.ui.updateSelection({ node });
+                        this.onStatsUpdate();
+                    }
+                }
+            },
+            {
                 label: '⚖️  Add Weight',
                 callback: () => {
                     if (this.structure.segments.includes(segment)) {
@@ -176,6 +190,7 @@ export class ContextMenuController {
                 callback: () => {
                     if (this.structure.segments.includes(segment)) {
                         this.structure.removeSegment(segment);
+                        this.structure.clearSelection();
                         this.ui.updateSelection({});
                         this.onStatsUpdate();
                     }
