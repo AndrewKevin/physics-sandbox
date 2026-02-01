@@ -711,6 +711,7 @@ class PhysicsSandbox {
 
     /**
      * Find all elements at a given position.
+     * Segments are excluded from the picker (they're large and can be clicked elsewhere).
      * @param {number} x - X position
      * @param {number} y - Y position
      * @returns {Array} Array of {type, element} objects
@@ -724,8 +725,11 @@ class PhysicsSandbox {
         const node = this.structure.findNodeAt(x, y);
         if (node) elements.push({ type: 'node', element: node });
 
-        const segment = this.structure.findSegmentAt(x, y);
-        if (segment) elements.push({ type: 'segment', element: segment });
+        // Only include segment if no other elements found (segments are large, easily clicked elsewhere)
+        if (elements.length === 0) {
+            const segment = this.structure.findSegmentAt(x, y);
+            if (segment) elements.push({ type: 'segment', element: segment });
+        }
 
         return elements;
     }
