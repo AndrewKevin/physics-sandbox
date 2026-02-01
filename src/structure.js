@@ -194,7 +194,7 @@ export class Weight {
      * Otherwise, returns node position or interpolates along segment.
      */
     getPosition() {
-        // During simulation, use actual physics body position
+        // During simulation, use actual physics body position (node-attached weights)
         if (this.body) {
             return { ...this.body.position };
         }
@@ -205,8 +205,13 @@ export class Weight {
 
         if (this.attachedToSegment) {
             const seg = this.attachedToSegment;
-            const posA = { x: seg.nodeA.x, y: seg.nodeA.y };
-            const posB = { x: seg.nodeB.x, y: seg.nodeB.y };
+            // Use physics body positions during simulation, static positions otherwise
+            const posA = seg.nodeA.body
+                ? seg.nodeA.body.position
+                : { x: seg.nodeA.x, y: seg.nodeA.y };
+            const posB = seg.nodeB.body
+                ? seg.nodeB.body.position
+                : { x: seg.nodeB.x, y: seg.nodeB.y };
 
             return {
                 x: posA.x + (posB.x - posA.x) * this.position,

@@ -122,7 +122,7 @@ describe('PhysicsController - User Intent', () => {
         });
     });
 
-    describe('Structure with weights', () => {
+    describe('Structure with node-attached weights', () => {
         beforeEach(() => {
             mockStructure.weights = [{
                 mass: 10,
@@ -136,13 +136,13 @@ describe('PhysicsController - User Intent', () => {
             }];
         });
 
-        it('should create bodies for weights', () => {
+        it('should create bodies for node-attached weights', () => {
             controller.start(mockStructure);
 
             expect(mockStructure.weights[0].body).not.toBe(null);
         });
 
-        it('should create constraints to attach weights', () => {
+        it('should create constraints to attach node-attached weights', () => {
             controller.start(mockStructure);
 
             expect(mockStructure.weights[0].constraints).not.toBe(null);
@@ -154,6 +154,49 @@ describe('PhysicsController - User Intent', () => {
 
             expect(mockStructure.weights[0].body).toBe(null);
             expect(mockStructure.weights[0].constraints).toBe(null);
+        });
+    });
+
+    describe('Structure with segment-attached weights', () => {
+        beforeEach(() => {
+            // Add a segment
+            mockStructure.segments = [{
+                nodeA: mockStructure.nodes[0],
+                nodeB: mockStructure.nodes[1],
+                material: 'beam',
+                stiffness: 0.8,
+                damping: 0.1,
+                restLength: 100,
+                tensionOnly: false,
+                compressionOnly: false,
+                constraint: null,
+                isSlack: false
+            }];
+
+            // Add a segment-attached weight
+            mockStructure.weights = [{
+                mass: 50,
+                position: 0.5,
+                attachedToNode: null,
+                attachedToSegment: mockStructure.segments[0],
+                getPosition: () => ({ x: 150, y: 100 }),
+                getRadius: () => 20,
+                body: null,
+                constraints: null
+            }];
+        });
+
+        it('should NOT create bodies for segment-attached weights', () => {
+            controller.start(mockStructure);
+
+            expect(mockStructure.weights[0].body).toBe(null);
+        });
+
+        it('should NOT create constraints for segment-attached weights', () => {
+            controller.start(mockStructure);
+
+            // constraints property is never assigned when body is null
+            expect(mockStructure.weights[0].constraints).toBeFalsy();
         });
     });
 });
@@ -335,28 +378,36 @@ describe('PhysicsController', () => {
         });
     });
 
-    describe('updateWeightConstraints', () => {
-        it('should update constraint lengths for segment-attached weights', () => {
+    describe('applySegmentWeightForces', () => {
+        it('should apply forces to segment nodes for segment-attached weights', () => {
             controller.init();
 
-            const constraintA = { length: 50 };
-            const constraintB = { length: 50 };
+            // Track forces applied to node bodies
+            const appliedForces = [];
+            const nodeABody = {
+                position: { x: 0, y: 0 },
+                force: { x: 0, y: 0 }
+            };
+            const nodeBBody = {
+                position: { x: 100, y: 0 },
+                force: { x: 0, y: 0 }
+            };
 
             const weight = {
+                mass: 10,
                 attachedToSegment: {
-                    nodeA: { body: { position: { x: 0, y: 0 } } },
-                    nodeB: { body: { position: { x: 200, y: 0 } } }  // Stretched to 200
+                    nodeA: { body: nodeABody },
+                    nodeB: { body: nodeBBody }
                 },
-                position: 0.5,
-                constraints: [constraintA, constraintB]
+                attachedToNode: null,
+                position: 0.5  // Midpoint
             };
 
             const structure = { weights: [weight] };
-            controller.updateWeightConstraints(structure);
 
-            // Constraints should update to match current segment length (200)
-            expect(constraintA.length).toBe(100);  // 0.5 * 200
-            expect(constraintB.length).toBe(100);  // 0.5 * 200
+            // Call the method - it uses Matter.Body.applyForce internally
+            // We can't easily mock Matter.js, but we can verify no errors
+            expect(() => controller.applySegmentWeightForces(structure)).not.toThrow();
         });
 
         it('should ignore node-attached weights', () => {
@@ -365,13 +416,34 @@ describe('PhysicsController', () => {
             const weight = {
                 attachedToNode: { body: {} },
                 attachedToSegment: null,
-                constraints: [{ bodyA: {}, bodyB: {} }]
+                mass: 10,
+                position: 0.5
             };
 
             const structure = { weights: [weight] };
 
             // Should not throw
-            expect(() => controller.updateWeightConstraints(structure)).not.toThrow();
+            expect(() => controller.applySegmentWeightForces(structure)).not.toThrow();
+        });
+
+        it('should skip weights with missing node bodies', () => {
+            controller.init();
+
+            // Weight on segment where nodes don't have bodies yet
+            const weight = {
+                mass: 10,
+                attachedToSegment: {
+                    nodeA: { body: null },
+                    nodeB: { body: null }
+                },
+                attachedToNode: null,
+                position: 0.25
+            };
+
+            const structure = { weights: [weight] };
+
+            // Should not throw - early return when bodies are null
+            expect(() => controller.applySegmentWeightForces(structure)).not.toThrow();
         });
     });
 

@@ -368,12 +368,73 @@ export class Renderer {
         ctx.setLineDash([]);
     }
 
+    drawStressLabel(segment, simulating = false) {
+        const ctx = this.ctx;
+        const nodeA = segment.nodeA;
+        const nodeB = segment.nodeB;
+
+        // Get actual positions (from physics body if simulating)
+        const posA = nodeA.body && simulating
+            ? nodeA.body.position
+            : { x: nodeA.x, y: nodeA.y };
+        const posB = nodeB.body && simulating
+            ? nodeB.body.position
+            : { x: nodeB.x, y: nodeB.y };
+
+        // Calculate midpoint
+        const midX = (posA.x + posB.x) / 2;
+        const midY = (posA.y + posB.y) / 2;
+
+        // Calculate segment angle for label offset
+        const angle = Math.atan2(posB.y - posA.y, posB.x - posA.x);
+        // Offset perpendicular to segment
+        const offsetDist = 18;
+        const offsetX = Math.sin(angle) * offsetDist;
+        const offsetY = -Math.cos(angle) * offsetDist;
+
+        // Get stress percentage and colour
+        const stressPercent = Math.round(segment.stress * 100);
+        const stressColor = segment.getStressColor();
+
+        // Draw background pill
+        const text = `${stressPercent}%`;
+        ctx.font = 'bold 11px "DM Sans", sans-serif';
+        const textWidth = ctx.measureText(text).width;
+        const pillWidth = textWidth + 10;
+        const pillHeight = 18;
+        const pillX = midX + offsetX - pillWidth / 2;
+        const pillY = midY + offsetY - pillHeight / 2;
+
+        // Semi-transparent background
+        ctx.fillStyle = 'rgba(13, 13, 26, 0.85)';
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 4);
+        } else {
+            // Fallback for older browsers
+            ctx.rect(pillX, pillY, pillWidth, pillHeight);
+        }
+        ctx.fill();
+
+        // Border matching stress colour
+        ctx.strokeStyle = stressColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Text
+        ctx.fillStyle = stressColor;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, midX + offsetX, midY + offsetY);
+    }
+
     render(structure, state = {}) {
         const {
             simulating = false,
             groundY = this.height - Renderer.DEFAULT_GROUND_OFFSET,
             mouseX = 0,
-            mouseY = 0
+            mouseY = 0,
+            showStressLabels = false
         } = state;
 
         this.clear();
@@ -383,6 +444,13 @@ export class Renderer {
         // Draw segments first (behind nodes)
         for (const segment of structure.segments) {
             this.drawSegment(segment, simulating);
+        }
+
+        // Draw stress labels on top of segments (when enabled and simulating)
+        if (showStressLabels && simulating) {
+            for (const segment of structure.segments) {
+                this.drawStressLabel(segment, simulating);
+            }
         }
 
         // Draw weights (on top of segments, behind nodes)

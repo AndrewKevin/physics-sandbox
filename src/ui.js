@@ -28,6 +28,7 @@ export class UIController {
             dampingValue: this.getElement('damping-value'),
             segmentCompression: this.getElement('segment-compression'),
             segmentTension: this.getElement('segment-tension'),
+            viewStressLabels: this.getElement('view-stress-labels'),
             statNodes: this.getElement('stat-nodes'),
             statSegments: this.getElement('stat-segments'),
             statWeights: this.getElement('stat-weights'),
@@ -105,6 +106,8 @@ export class UIController {
             this.onSegmentTensionChange?.(e.target.checked);
         });
 
+        // View options (no callback needed - state read directly via getter)
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             this.handleKeydown(e);
@@ -117,7 +120,7 @@ export class UIController {
         if (tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA') return;
 
         switch (e.key.toLowerCase()) {
-            case ' ':
+            case 'r':
                 e.preventDefault();
                 this.toggleSimulation();
                 break;
@@ -154,7 +157,7 @@ export class UIController {
             btn.innerHTML = '<span class="play-icon">⏸</span> STOP';
         } else {
             btn.classList.remove('running');
-            btn.innerHTML = '<span class="play-icon">▶</span> START';
+            btn.innerHTML = '<span class="play-icon">▶</span> RUN';
         }
 
         // Disable material buttons during simulation
@@ -288,5 +291,9 @@ export class UIController {
 
     setLoadCallback(callback) {
         this.onLoad = callback;
+    }
+
+    get showStressLabels() {
+        return this.elements.viewStressLabels?.checked ?? false;
     }
 }

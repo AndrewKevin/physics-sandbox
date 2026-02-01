@@ -97,26 +97,29 @@ export class PhysicsController {
             Matter.World.add(this.engine.world, constraint);
         }
 
-        // Create physics bodies for weights
+        // Create physics bodies for weights (node-attached only)
+        // Segment-attached weights use direct force application instead
         for (const weight of structure.weights) {
             const body = this.createWeightBody(weight);
             weight.body = body;
-            Matter.World.add(this.engine.world, body);
 
-            // Create constraint(s) to attachment point
-            const constraints = this.createWeightConstraint(weight);
-            if (constraints) {
-                weight.constraints = Array.isArray(constraints) ? constraints : [constraints];
-                for (const c of weight.constraints) {
-                    Matter.World.add(this.engine.world, c);
+            if (body) {
+                Matter.World.add(this.engine.world, body);
+
+                // Create constraint to attachment point (node-attached only)
+                const constraint = this.createWeightConstraint(weight);
+                if (constraint) {
+                    weight.constraints = [constraint];
+                    Matter.World.add(this.engine.world, constraint);
                 }
             }
         }
 
         // Add physics update listener for tension-only/compression-only behaviour
+        // and segment-attached weight force application
         this.constraintModeHandler = () => {
             this.updateConstraintModes(structure);
-            this.updateWeightConstraints(structure);
+            this.applySegmentWeightForces(structure);
         };
         Matter.Events.on(this.engine, 'beforeUpdate', this.constraintModeHandler);
 
@@ -235,10 +238,18 @@ export class PhysicsController {
 
     /**
      * Create a physics body for a weight.
+     * Only node-attached weights get physics bodies.
+     * Segment-attached weights use direct force application instead.
      * @param {Object} weight - Weight with getPosition(), getRadius(), mass properties
-     * @returns {Matter.Body}
+     * @returns {Matter.Body|null}
      */
     createWeightBody(weight) {
+        // Segment-attached weights don't need physics bodies
+        // Their force is applied directly to segment nodes
+        if (weight.attachedToSegment) {
+            return null;
+        }
+
         const pos = weight.getPosition();
         return Matter.Bodies.circle(pos.x, pos.y, weight.getRadius(), {
             mass: weight.mass,
@@ -255,53 +266,29 @@ export class PhysicsController {
     }
 
     /**
-     * Create constraint(s) to attach a weight to its anchor point.
-     * Node-attached weights get a single constraint.
-     * Segment-attached weights get two constraints (one to each endpoint)
-     * so force is properly transmitted to both nodes.
+     * Create constraint to attach a weight to its anchor point.
+     * Only node-attached weights use constraints.
+     * Segment-attached weights use direct force application instead.
      * @param {Object} weight - Weight with attachedToNode or attachedToSegment
-     * @returns {Matter.Constraint|Matter.Constraint[]|null}
+     * @returns {Matter.Constraint|null}
      */
     createWeightConstraint(weight) {
-        // Use maximum stiffness (1.0) for weight constraints
-        // Heavy weights need rigid constraints to stay attached
-        const stiffness = 1.0;
-        const damping = 0.3;  // Higher damping to reduce oscillation
+        // Segment-attached weights don't use constraints
+        // Their force is applied directly to segment nodes each frame
+        if (weight.attachedToSegment || !weight.body) {
+            return null;
+        }
 
         if (weight.attachedToNode) {
             return Matter.Constraint.create({
                 bodyA: weight.body,
                 bodyB: weight.attachedToNode.body,
-                stiffness,
-                damping,
+                stiffness: 1.0,
+                damping: 0.3,
                 length: 0
             });
-        } else if (weight.attachedToSegment) {
-            const seg = weight.attachedToSegment;
-            const t = weight.position; // 0-1 along segment
-
-            // Create two constraints to endpoint nodes
-            // Lengths are proportional to position along segment
-            const lengthToA = t * seg.restLength;
-            const lengthToB = (1 - t) * seg.restLength;
-
-            return [
-                Matter.Constraint.create({
-                    bodyA: weight.body,
-                    bodyB: seg.nodeA.body,
-                    stiffness,
-                    damping,
-                    length: lengthToA
-                }),
-                Matter.Constraint.create({
-                    bodyA: weight.body,
-                    bodyB: seg.nodeB.body,
-                    stiffness,
-                    damping,
-                    length: lengthToB
-                })
-            ];
         }
+
         return null;
     }
 
@@ -343,27 +330,34 @@ export class PhysicsController {
     }
 
     /**
-     * Update segment-attached weight constraint lengths.
-     * As the segment stretches/compresses, we must update constraint lengths
-     * to keep the weight on the segment line (not floating off to the side).
+     * Apply gravitational forces from segment-attached weights to segment nodes.
+     * This replaces constraint-based attachment for segment weights, which is more
+     * reliable for heavy weights (constraint solver struggles with the geometry).
      * @param {Object} structure - Structure with weights array
      */
-    updateWeightConstraints(structure) {
+    applySegmentWeightForces(structure) {
+        // Matter.js internally scales gravity by this factor (default 0.001)
+        // We must use the same scaling for consistent physics
+        const gravityScale = this.engine.gravity.scale ?? 0.001;
+
         for (const weight of structure.weights) {
-            if (!weight.attachedToSegment || !weight.constraints) continue;
+            if (!weight.attachedToSegment) continue;
 
             const seg = weight.attachedToSegment;
             if (!seg.nodeA.body || !seg.nodeB.body) continue;
 
-            // Get current segment length
             const posA = seg.nodeA.body.position;
             const posB = seg.nodeB.body.position;
-            const currentLength = Matter.Vector.magnitude(Matter.Vector.sub(posB, posA));
-
-            // Update constraint lengths proportionally to keep weight on segment line
             const t = weight.position;
-            weight.constraints[0].length = t * currentLength;
-            weight.constraints[1].length = (1 - t) * currentLength;
+
+            // Apply weight's gravitational force to segment nodes proportionally
+            // Force = mass * gravity * scale (matching Matter.js internal calculation)
+            const force = weight.mass * this.gravity.y * gravityScale;
+            const forceA = force * (1 - t);
+            const forceB = force * t;
+
+            Matter.Body.applyForce(seg.nodeA.body, posA, { x: 0, y: forceA });
+            Matter.Body.applyForce(seg.nodeB.body, posB, { x: 0, y: forceB });
         }
     }
 

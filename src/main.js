@@ -669,7 +669,8 @@ class PhysicsSandbox {
             simulating: this.isSimulating,
             groundY: this.groundY,
             mouseX: this.mouseX,
-            mouseY: this.mouseY
+            mouseY: this.mouseY,
+            showStressLabels: this.ui.showStressLabels
         });
 
         this.animationId = requestAnimationFrame(() => this.animate());
