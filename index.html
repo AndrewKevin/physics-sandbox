@@ -11,27 +11,9 @@
 </head>
 <body>
     <div id="app">
-        <!-- Left Panel: Mode & Materials -->
+        <!-- Left Panel: Materials & Simulation -->
         <aside id="left-panel">
             <h1 class="logo">PHYSICS<br><span>SANDBOX</span></h1>
-
-            <section class="panel-section">
-                <h2>MODE</h2>
-                <div class="mode-buttons">
-                    <button class="mode-btn active" data-mode="connect">
-                        <span class="mode-icon">─</span>
-                        Connect
-                    </button>
-                    <button class="mode-btn" data-mode="select">
-                        <span class="mode-icon">☐</span>
-                        Select
-                    </button>
-                    <button class="mode-btn" data-mode="delete">
-                        <span class="mode-icon">✕</span>
-                        Delete
-                    </button>
-                </div>
-            </section>
 
             <section class="panel-section">
                 <h2>MATERIAL</h2>
@@ -79,7 +61,7 @@
         <main id="canvas-container">
             <canvas id="physics-canvas"></canvas>
             <div id="canvas-overlay">
-                <span class="hint">Click two points to connect • Right-click node for options</span>
+                <span class="hint">Right-click to add nodes • Click nodes to select and connect</span>
             </div>
 
             <!-- Bottom Status Bar -->

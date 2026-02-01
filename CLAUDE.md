@@ -6,12 +6,17 @@ Interactive 2D physics sandbox for exploring load and stress. Users create nodes
 
 ## Interaction Model
 
-- **Left-click**: Always selects the clicked element (node, segment, or weight). In connect mode, clicking two existing nodes creates a segment between them.
-- **Right-click on element**: Shows context menu with element-specific options (nodes: Pin/Add Weight/Delete; segments: Edit Properties/Add Weight/Delete; weights: show popup editor).
-- **Right-click on empty space**: Shows menu with "Add Node" option to create a node at that position.
-- **Delete/Backspace key**: Immediately deletes the currently selected element.
-- **Node dragging**: Click and drag any node to reposition it. Connected segments update automatically. Rest lengths recalculate on drop.
-- **Escape key**: Cancels current drag operation (restores node to original position).
+**Modeless design** — click to select and connect, right-click for context menus.
+
+- **Left-click on element**: Selects it (node, segment, or weight)
+- **Left-click on node while another node is selected**: Creates a segment between them
+- **Left-click on empty space while node selected**: Creates a new node there
+- **Left-click on empty space with no selection**: Clears selection
+- **Right-click on element**: Shows context menu (nodes: Pin/Delete; segments: Edit/Add Weight/Delete; weights: popup editor)
+- **Right-click on empty space**: Shows "Add Node" menu
+- **Delete/Backspace key**: Deletes the currently selected element
+- **Node dragging**: Click and drag any node to reposition. Rest lengths recalculate on drop
+- **Escape key**: Cancels current drag operation
 
 ## Tech Stack
 

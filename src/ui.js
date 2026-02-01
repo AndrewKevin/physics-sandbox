@@ -3,20 +3,17 @@
  */
 
 export class UIController {
-    constructor(onModeChange, onMaterialChange, onSimToggle, onReset) {
+    constructor(onMaterialChange, onSimToggle, onReset) {
         // Callbacks
-        this.onModeChange = onModeChange;
         this.onMaterialChange = onMaterialChange;
         this.onSimToggle = onSimToggle;
         this.onReset = onReset;
 
         // State
-        this.currentMode = 'connect';
         this.currentMaterial = 'beam';
 
         // Cache DOM elements with null guards
         this.elements = {
-            modeButtons: document.querySelectorAll('.mode-btn'),
             materialButtons: document.querySelectorAll('.material-btn'),
             simToggle: this.getElement('sim-toggle'),
             simReset: this.getElement('sim-reset'),
@@ -51,14 +48,6 @@ export class UIController {
     }
 
     bindEvents() {
-        // Mode buttons
-        this.elements.modeButtons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const mode = btn.dataset.mode;
-                this.setMode(mode);
-            });
-        });
-
         // Material buttons
         this.elements.materialButtons.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -117,19 +106,6 @@ export class UIController {
         if (tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA') return;
 
         switch (e.key.toLowerCase()) {
-            case '1':
-            case 'c':
-                this.setMode('connect');
-                break;
-            case '2':
-            case 's':
-                this.setMode('select');
-                break;
-            case '3':
-            case 'd':
-                this.setMode('delete');
-                break;
-            // Note: Delete/Backspace now immediately deletes selected element (handled in main.js)
             case ' ':
                 e.preventDefault();
                 this.toggleSimulation();
@@ -138,31 +114,7 @@ export class UIController {
                 if (e.ctrlKey || e.metaKey) return; // Don't intercept browser refresh
                 this.onReset();
                 break;
-            case 'escape':
-                // Cancel current action (used by main.js to clear connect start node)
-                break;
         }
-    }
-
-    setMode(mode) {
-        this.currentMode = mode;
-
-        // Update button states
-        this.elements.modeButtons.forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.mode === mode);
-        });
-
-        // Update hint text
-        const hints = {
-            connect: 'Click two points to connect • Right-click node for options',
-            select: 'Click nodes or segments to select',
-            delete: 'Click nodes or segments to delete'
-        };
-        if (this.elements.hint) {
-            this.elements.hint.textContent = hints[mode] || '';
-        }
-
-        this.onModeChange(mode);
     }
 
     setMaterial(material) {
@@ -194,12 +146,7 @@ export class UIController {
             btn.innerHTML = '<span class="play-icon">▶</span> START';
         }
 
-        // Disable mode/material buttons during simulation
-        this.elements.modeButtons.forEach(btn => {
-            btn.disabled = simulating;
-            btn.style.opacity = simulating ? '0.5' : '1';
-        });
-
+        // Disable material buttons during simulation
         this.elements.materialButtons.forEach(btn => {
             btn.disabled = simulating;
             btn.style.opacity = simulating ? '0.5' : '1';

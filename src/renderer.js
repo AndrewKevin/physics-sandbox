@@ -373,9 +373,7 @@ export class Renderer {
             simulating = false,
             groundY = this.height - Renderer.DEFAULT_GROUND_OFFSET,
             mouseX = 0,
-            mouseY = 0,
-            mode = 'connect',
-            connectStartNode = null
+            mouseY = 0
         } = state;
 
         this.clear();
@@ -397,9 +395,10 @@ export class Renderer {
             this.drawNode(node, simulating);
         }
 
-        // Draw connection preview in connect mode
-        if (!simulating && mode === 'connect' && connectStartNode) {
-            this.drawConnectionPreview(connectStartNode, mouseX, mouseY);
+        // Draw connection preview when a node is selected
+        const selectedNode = structure.selectedNodes[0];
+        if (!simulating && selectedNode) {
+            this.drawConnectionPreview(selectedNode, mouseX, mouseY);
         }
     }
 }

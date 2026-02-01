@@ -18,7 +18,6 @@ class PhysicsSandbox {
 
     constructor() {
         // Core state
-        this.mode = 'connect';
         this.material = 'beam';
         this.isSimulating = false;
         this.groundY = 0;
@@ -26,7 +25,6 @@ class PhysicsSandbox {
         // Mouse state
         this.mouseX = 0;
         this.mouseY = 0;
-        this.connectStartNode = null;
         this.hoveredNode = null;
         this.hoveredSegment = null;
         this.hoveredWeight = null;
@@ -79,7 +77,6 @@ class PhysicsSandbox {
 
     initUI() {
         this.ui = new UIController(
-            (mode) => this.setMode(mode),
             (material) => this.setMaterial(material),
             (simulating) => this.toggleSimulation(simulating),
             () => this.reset()
@@ -212,9 +209,6 @@ class PhysicsSandbox {
                 label: '✕  Delete Node',
                 callback: () => {
                     if (this.structure.nodes.includes(node)) {
-                        if (this.connectStartNode === node) {
-                            this.connectStartNode = null;
-                        }
                         this.structure.removeNode(node);
                         this.ui.updateSelection({});
                         this.updateStats();
@@ -339,22 +333,35 @@ class PhysicsSandbox {
     }
 
     onKeyDown(e) {
-        // Cancel drag on Escape
-        if (e.key === 'Escape' && this.isDragging) {
-            // Restore original node position
-            if (this.draggedNode && this.dragStartNodePos) {
-                this.draggedNode.updatePosition(this.dragStartNodePos.x, this.dragStartNodePos.y);
+        // ESC key priority: 1) close menus, 2) cancel drag, 3) clear selection
+        if (e.key === 'Escape') {
+            // First, close any open menus/popups
+            if (this.contextMenu?.isOpen() || this.weightPopup?.isOpen()) {
+                this.closeAllMenus();
+                return;
             }
-            this.isDragging = false;
-            this.draggedNode = null;
-            this.dragStartMousePos = null;
-            this.dragStartNodePos = null;
-            this.wasJustDragging = false;
+
+            // Second, cancel drag and restore node position
+            if (this.isDragging) {
+                if (this.draggedNode && this.dragStartNodePos) {
+                    this.draggedNode.updatePosition(this.dragStartNodePos.x, this.dragStartNodePos.y);
+                }
+                this.isDragging = false;
+                this.draggedNode = null;
+                this.dragStartMousePos = null;
+                this.dragStartNodePos = null;
+                this.wasJustDragging = false;
+                return;
+            }
+
+            // Finally, clear selection
+            this.structure.clearSelection();
+            this.ui.updateSelection({});
             return;
         }
 
         // Delete selected element on Delete/Backspace
-        if ((e.key === 'Delete' || e.key === 'Backspace') && !this.isSimulating) {
+        if ((e.key === 'Delete' || e.key === 'Backspace') && !this.isSimulating && !this.isDragging) {
             // Don't handle if typing in an input element
             const tagName = e.target.tagName;
             if (tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA') return;
@@ -369,7 +376,7 @@ class PhysicsSandbox {
      */
     deleteSelectedElement() {
         const selectedWeight = this.structure.selectedWeight;
-        const selectedNode = this.structure.selectedNode;
+        const selectedNode = this.structure.selectedNodes[0];  // selectedNodes is an array
         const selectedSegment = this.structure.selectedSegment;
 
         if (selectedWeight) {
@@ -384,10 +391,6 @@ class PhysicsSandbox {
             // Close popup if it's showing a weight attached to this node
             if (this.weightPopup?.isOpen() && this.weightPopup.weight?.isAttachedTo(selectedNode)) {
                 this.weightPopup.close();
-            }
-            // Clear connectStartNode if we're deleting it
-            if (this.connectStartNode === selectedNode) {
-                this.connectStartNode = null;
             }
             this.structure.removeNode(selectedNode);
             this.ui.updateSelection({});
@@ -483,25 +486,7 @@ class PhysicsSandbox {
             // Update hover states for visual feedback
             if (!this.isSimulating) {
                 this.clearHoverStates();
-
-                // Check for hover (weights first, then nodes, then segments)
-                const weight = this.structure.findWeightAt(pos.x, pos.y);
-                if (weight) {
-                    weight.hovered = true;
-                    this.hoveredWeight = weight;
-                } else {
-                    const node = this.structure.findNodeAt(pos.x, pos.y);
-                    if (node) {
-                        node.hovered = true;
-                        this.hoveredNode = node;
-                    } else {
-                        const segment = this.structure.findSegmentAt(pos.x, pos.y);
-                        if (segment) {
-                            segment.hovered = true;
-                            this.hoveredSegment = segment;
-                        }
-                    }
-                }
+                this.updateHoverState(pos.x, pos.y);
             }
         }
     }
@@ -603,58 +588,37 @@ class PhysicsSandbox {
         // Update hover states and cursor
         if (!this.isSimulating) {
             this.clearHoverStates();
-
-            // Check for hover (weights first, then nodes, then segments)
-            const weight = this.structure.findWeightAt(pos.x, pos.y);
-            if (weight) {
-                weight.hovered = true;
-                this.hoveredWeight = weight;
-                this.canvas.style.cursor = this.getCursorForMode(true, false);
-            } else {
-                const node = this.structure.findNodeAt(pos.x, pos.y);
-                if (node) {
-                    node.hovered = true;
-                    this.hoveredNode = node;
-                    this.canvas.style.cursor = this.getCursorForMode(true, true);
-                } else {
-                    const segment = this.structure.findSegmentAt(pos.x, pos.y);
-                    if (segment) {
-                        segment.hovered = true;
-                        this.hoveredSegment = segment;
-                        this.canvas.style.cursor = this.getCursorForMode(true, false);
-                    } else {
-                        this.canvas.style.cursor = this.getCursorForMode(false);
-                    }
-                }
-            }
+            this.updateHoverState(pos.x, pos.y);
         } else {
             this.canvas.style.cursor = 'default';
         }
     }
 
-    getCursorForMode(overElement, isNode = false) {
-        if (overElement) {
-            switch (this.mode) {
-                case 'connect':
-                    return isNode ? 'grab' : 'crosshair';
-                case 'select':
-                    return isNode ? 'grab' : 'pointer';
-                case 'delete':
-                    return 'not-allowed';
-                default:
-                    return isNode ? 'grab' : 'crosshair';
-            }
-        } else {
-            switch (this.mode) {
-                case 'connect':
-                    return 'crosshair';
-                case 'select':
-                    return 'default';
-                case 'delete':
-                    return 'default';
-                default:
-                    return 'crosshair';
-            }
+    /**
+     * Update hover state for element at position and set appropriate cursor.
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     */
+    updateHoverState(x, y) {
+        const found = this.findElementAt(x, y);
+
+        if (!found) {
+            this.canvas.style.cursor = 'default';
+            return;
+        }
+
+        const { type, element } = found;
+        element.hovered = true;
+
+        if (type === 'weight') {
+            this.hoveredWeight = element;
+            this.canvas.style.cursor = 'pointer';
+        } else if (type === 'node') {
+            this.hoveredNode = element;
+            this.canvas.style.cursor = 'grab';
+        } else if (type === 'segment') {
+            this.hoveredSegment = element;
+            this.canvas.style.cursor = 'pointer';
         }
     }
 
@@ -668,20 +632,102 @@ class PhysicsSandbox {
         }
 
         const pos = this.getMousePos(e);
+        this.handleClick(pos.x, pos.y);
+        this.updateStats();
+    }
 
-        switch (this.mode) {
-            case 'connect':
-                this.handleConnect(pos.x, pos.y);
-                break;
-            case 'select':
-                this.handleSelect(pos.x, pos.y);
-                break;
-            case 'delete':
-                this.handleDelete(pos.x, pos.y);
-                break;
+    /**
+     * Unified click handler - routes to element-specific handlers.
+     * Uses centralised element detection with priority: weight > node > segment.
+     */
+    handleClick(x, y) {
+        const found = this.findElementAt(x, y);
+
+        if (found) {
+            const { type, element } = found;
+            if (type === 'weight') {
+                this.handleWeightClick(element);
+            } else if (type === 'node') {
+                this.handleNodeClick(element);
+            } else if (type === 'segment') {
+                this.handleSegmentClick(element);
+            }
+        } else {
+            this.handleEmptySpaceClick(x, y);
+        }
+    }
+
+    /**
+     * Handle click on a weight - toggles selection.
+     */
+    handleWeightClick(weight) {
+        if (weight.selected) {
+            this.structure.clearSelection();
+            this.ui.updateSelection({});
+        } else {
+            this.structure.selectWeight(weight);
+            this.ui.updateSelection({ weight });
+        }
+    }
+
+    /**
+     * Handle click on a node - selects it, or creates segment if another node is selected.
+     * Enables node chaining by always selecting the clicked node.
+     */
+    handleNodeClick(node) {
+        const currentlySelectedNode = this.structure.selectedNodes[0];
+
+        // Toggle off if clicking same node
+        if (currentlySelectedNode === node) {
+            this.structure.clearSelection();
+            this.ui.updateSelection({});
+            return;
         }
 
-        this.updateStats();
+        // Create segment if another node is selected
+        if (currentlySelectedNode) {
+            this.structure.addSegment(currentlySelectedNode, node, this.material);
+        }
+
+        // Always select the clicked node to enable chaining
+        this.structure.selectNode(node);
+        this.ui.updateSelection({ node });
+    }
+
+    /**
+     * Handle click on a segment - toggles selection.
+     */
+    handleSegmentClick(segment) {
+        if (segment.selected) {
+            this.structure.clearSelection();
+            this.ui.updateSelection({});
+        } else {
+            this.structure.selectSegment(segment);
+            this.ui.updateSelection({ segment });
+        }
+    }
+
+    /**
+     * Handle click on empty space - creates new node and connects if node selected,
+     * otherwise clears selection.
+     */
+    handleEmptySpaceClick(x, y) {
+        const currentlySelectedNode = this.structure.selectedNodes[0];
+
+        if (currentlySelectedNode) {
+            // Create new node and connect to selected node
+            const clamped = this.clampToCanvas(x, y);
+            const newNode = this.structure.addNode(clamped.x, clamped.y);
+            this.structure.addSegment(currentlySelectedNode, newNode, this.material);
+
+            // Select new node to continue chaining
+            this.structure.selectNode(newNode);
+            this.ui.updateSelection({ node: newNode });
+        } else {
+            // Clear selection
+            this.structure.clearSelection();
+            this.ui.updateSelection({});
+        }
     }
 
     onRightClick(e) {
@@ -735,6 +781,26 @@ class PhysicsSandbox {
     }
 
     /**
+     * Find the highest-priority element at a position.
+     * Priority order: weight > node > segment (smallest to largest hit areas).
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @returns {{type: string, element: Object}|null} The element, or null if none found
+     */
+    findElementAt(x, y) {
+        const weight = this.structure.findWeightAt(x, y);
+        if (weight) return { type: 'weight', element: weight };
+
+        const node = this.structure.findNodeAt(x, y);
+        if (node) return { type: 'node', element: node };
+
+        const segment = this.structure.findSegmentAt(x, y);
+        if (segment) return { type: 'segment', element: segment };
+
+        return null;
+    }
+
+    /**
      * Show the appropriate menu for an element.
      * @param {Object} item - {type, element} object
      * @param {Event} e - The mouse event
@@ -776,10 +842,8 @@ class PhysicsSandbox {
             return {
                 label,
                 callback: () => {
-                    // Small delay to allow current menu to close
-                    setTimeout(() => {
-                        this.showElementMenu(item, e, pos);
-                    }, 50);
+                    // showElementMenu calls closeAllMenus() first, so no delay needed
+                    this.showElementMenu(item, e, pos);
                 }
             };
         });
@@ -818,127 +882,6 @@ class PhysicsSandbox {
         }
         if (this.weightPopup?.isOpen()) {
             this.weightPopup.close();
-        }
-    }
-
-    handleConnect(x, y) {
-        // Find existing node - no longer auto-creates nodes
-        const node = this.structure.findNodeAt(x, y);
-
-        if (!node) {
-            // Clicked empty space - clear connect start if any
-            if (this.connectStartNode) {
-                this.connectStartNode.selected = false;
-                this.connectStartNode = null;
-            }
-            return;
-        }
-
-        if (!this.connectStartNode) {
-            // First node selected
-            this.connectStartNode = node;
-            node.selected = true;
-        } else if (this.connectStartNode !== node) {
-            // Second node selected - create segment
-            const segment = this.structure.addSegment(
-                this.connectStartNode,
-                node,
-                this.material
-            );
-
-            if (segment) {
-                this.structure.selectSegment(segment);
-                this.ui.updateSelection({ segment });
-            }
-
-            // Clear start node selection visual
-            this.connectStartNode.selected = false;
-            this.connectStartNode = null;
-        }
-    }
-
-    handleSelect(x, y) {
-        // Try to select weight first (smallest, highest priority)
-        const weight = this.structure.findWeightAt(x, y);
-        if (weight) {
-            this.structure.selectWeight(weight);
-            this.ui.updateSelection({ weight });
-            return;
-        }
-
-        // Try to select node
-        const node = this.structure.findNodeAt(x, y);
-        if (node) {
-            this.structure.selectNode(node);
-            this.ui.updateSelection({ node });
-            return;
-        }
-
-        // Try to select segment
-        const segment = this.structure.findSegmentAt(x, y);
-        if (segment) {
-            this.structure.selectSegment(segment);
-            this.ui.updateSelection({ segment });
-            return;
-        }
-
-        // Clear selection
-        this.structure.clearSelection();
-        this.ui.updateSelection({});
-    }
-
-    handleDelete(x, y) {
-        // Note: updateStats() is called by onClick() after this method returns,
-        // so we don't need to call it here.
-
-        // Try to delete weight first (smallest, highest priority)
-        const weight = this.structure.findWeightAt(x, y);
-        if (weight) {
-            // Close popup if it's showing this weight
-            if (this.weightPopup?.isOpen() && this.weightPopup.weight === weight) {
-                this.weightPopup.close();
-            }
-            this.structure.removeWeight(weight);
-            this.ui.updateSelection({});
-            return;
-        }
-
-        // Try to delete node
-        const node = this.structure.findNodeAt(x, y);
-        if (node) {
-            // Close popup if it's showing a weight attached to this node
-            if (this.weightPopup?.isOpen() && this.weightPopup.weight?.isAttachedTo(node)) {
-                this.weightPopup.close();
-            }
-            // Clear connectStartNode if we're deleting it
-            if (this.connectStartNode === node) {
-                this.connectStartNode = null;
-            }
-            this.structure.removeNode(node);
-            this.ui.updateSelection({});
-            return;
-        }
-
-        // Try to delete segment
-        const segment = this.structure.findSegmentAt(x, y);
-        if (segment) {
-            // Close popup if it's showing a weight attached to this segment
-            if (this.weightPopup?.isOpen() && this.weightPopup.weight?.isAttachedTo(segment)) {
-                this.weightPopup.close();
-            }
-            this.structure.removeSegment(segment);
-            this.ui.updateSelection({});
-        }
-    }
-
-    setMode(mode) {
-        this.mode = mode;
-        this.connectStartNode = null;
-
-        // Clear selection when changing modes
-        if (mode !== 'select') {
-            this.structure.clearSelection();
-            this.ui.updateSelection({});
         }
     }
 
@@ -1207,7 +1150,6 @@ class PhysicsSandbox {
     reset() {
         this.stopSimulation();
         this.structure.clear();
-        this.connectStartNode = null;
         this.hoveredNode = null;
         this.hoveredSegment = null;
         this.hoveredWeight = null;
@@ -1237,9 +1179,7 @@ class PhysicsSandbox {
             simulating: this.isSimulating,
             groundY: this.groundY,
             mouseX: this.mouseX,
-            mouseY: this.mouseY,
-            mode: this.mode,
-            connectStartNode: this.connectStartNode
+            mouseY: this.mouseY
         });
 
         this.animationId = requestAnimationFrame(() => this.animate());
