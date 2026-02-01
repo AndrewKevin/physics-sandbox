@@ -209,17 +209,6 @@ class PhysicsSandbox {
                 }
             },
             {
-                label: '⚖️  Add Weight',
-                callback: () => {
-                    if (this.structure.nodes.includes(node)) {
-                        const weight = this.structure.addWeight(node);
-                        this.structure.selectWeight(weight);
-                        this.ui.updateSelection({ weight });
-                        this.updateStats();
-                    }
-                }
-            },
-            {
                 label: '✕  Delete Node',
                 callback: () => {
                     if (this.structure.nodes.includes(node)) {
@@ -298,6 +287,37 @@ class PhysicsSandbox {
 
         const t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
         return Math.max(0, Math.min(1, t));
+    }
+
+    /**
+     * Generate menu items for a weight context menu.
+     * @param {Weight} weight - The weight to create menu items for
+     * @returns {Array} Array of menu item objects
+     */
+    getWeightMenuItems(weight) {
+        return [
+            {
+                label: '⚙️  Edit Properties',
+                callback: () => {
+                    this.structure.selectWeight(weight);
+                    this.ui.updateSelection({ weight });
+                    // Show the weight popup for editing
+                    const pos = weight.getPosition();
+                    const rect = this.canvas.getBoundingClientRect();
+                    this.weightPopup.show(weight, rect.left + pos.x, rect.top + pos.y);
+                }
+            },
+            {
+                label: '✕  Delete Weight',
+                callback: () => {
+                    if (this.structure.weights.includes(weight)) {
+                        this.structure.removeWeight(weight);
+                        this.ui.updateSelection({});
+                        this.updateStats();
+                    }
+                }
+            }
+        ];
     }
 
     initEvents() {
@@ -706,12 +726,8 @@ class PhysicsSandbox {
         // Check for weight first (smallest, highest priority)
         const weight = this.structure.findWeightAt(pos.x, pos.y);
         if (weight) {
-            // Close all existing menus first
-            this.closeAllMenus();
-            // Use custom weight popup instead of context menu
-            this.structure.selectWeight(weight);
-            this.ui.updateSelection({ weight });
-            this.weightPopup.show(weight, e.clientX, e.clientY);
+            const menuItems = this.getWeightMenuItems(weight);
+            this.showContextMenu(e, menuItems);
             return;
         }
 
@@ -922,13 +938,25 @@ class PhysicsSandbox {
             gravity: { x: 0, y: 2 }
         });
 
+        // Collision categories - used to prevent weight/node overlap issues
+        const CATEGORY_NODE = 0x0001;
+        const CATEGORY_WEIGHT = 0x0002;
+        const CATEGORY_GROUND = 0x0004;
+
         // Create ground
         this.groundBody = Matter.Bodies.rectangle(
             this.renderer.width / 2,
             this.groundY + PhysicsSandbox.GROUND_OFFSET / 2,
             this.renderer.width * PhysicsSandbox.GROUND_WIDTH_MULTIPLIER,  // Extra wide to handle resize
             PhysicsSandbox.GROUND_OFFSET,
-            { isStatic: true, label: 'ground' }
+            {
+                isStatic: true,
+                label: 'ground',
+                collisionFilter: {
+                    category: CATEGORY_GROUND,
+                    mask: CATEGORY_NODE | CATEGORY_WEIGHT  // Collide with both
+                }
+            }
         );
         Matter.World.add(this.engine.world, this.groundBody);
 
@@ -940,7 +968,11 @@ class PhysicsSandbox {
                 restitution: 0.2,
                 friction: 0.8,
                 frictionStatic: 1.0,
-                frictionAir: 0.01     // Slight air resistance for stability
+                frictionAir: 0.01,    // Slight air resistance for stability
+                collisionFilter: {
+                    category: CATEGORY_NODE,
+                    mask: CATEGORY_GROUND  // Only collide with ground, not weights
+                }
             });
             node.body = body;
             Matter.World.add(this.engine.world, body);
@@ -978,7 +1010,11 @@ class PhysicsSandbox {
                 friction: 0.8,
                 frictionStatic: 1.0,
                 frictionAir: 0.02,
-                label: 'weight'
+                label: 'weight',
+                collisionFilter: {
+                    category: CATEGORY_WEIGHT,
+                    mask: CATEGORY_GROUND  // Only collide with ground, not nodes
+                }
             });
             weight.body = body;
             Matter.World.add(this.engine.world, body);
