@@ -28,6 +28,7 @@ export class UIController {
             dampingValue: this.getElement('damping-value'),
             segmentCompression: this.getElement('segment-compression'),
             segmentTension: this.getElement('segment-tension'),
+            viewSnapToGrid: this.getElement('view-snap-to-grid'),
             viewStressLabels: this.getElement('view-stress-labels'),
             statNodes: this.getElement('stat-nodes'),
             statSegments: this.getElement('stat-segments'),
@@ -295,5 +296,9 @@ export class UIController {
 
     get showStressLabels() {
         return this.elements.viewStressLabels?.checked ?? false;
+    }
+
+    get snapToGrid() {
+        return this.elements.viewSnapToGrid?.checked ?? false;
     }
 }

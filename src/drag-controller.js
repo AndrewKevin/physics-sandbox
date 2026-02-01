@@ -3,7 +3,7 @@
  * Manages node dragging state machine and position updates
  */
 
-import { clampToCanvas, distance } from './position-utils.js';
+import { clampToCanvas, distance, snapToGrid } from './position-utils.js';
 
 export class DragController {
     /** Distance threshold before a mousedown becomes a drag */
@@ -13,6 +13,8 @@ export class DragController {
      * @param {Object} options - Configuration options
      * @param {Function} options.getBounds - Returns { width, groundY } for clamping
      * @param {Function} options.getNodeRadius - Returns node radius for clamping
+     * @param {Function} [options.getSnapEnabled] - Returns true if snap-to-grid is enabled
+     * @param {Function} [options.getGridSize] - Returns grid size in pixels (default 20)
      * @param {Function} [options.onDragStart] - Called when drag begins (node)
      * @param {Function} [options.onDragMove] - Called during drag (node, clampedPos)
      * @param {Function} [options.onDragEnd] - Called when drag ends (node)
@@ -22,6 +24,8 @@ export class DragController {
         // Dependencies (injected)
         this.getBounds = options.getBounds ?? (() => ({ width: 800, groundY: 540 }));
         this.getNodeRadius = options.getNodeRadius ?? (() => 12);
+        this.getSnapEnabled = options.getSnapEnabled ?? (() => false);
+        this.getGridSize = options.getGridSize ?? (() => 20);
 
         // Callbacks
         this.onDragStart = options.onDragStart ?? (() => {});
@@ -71,7 +75,15 @@ export class DragController {
             // Clamp position to canvas bounds
             const bounds = this.getBounds();
             const radius = this.getNodeRadius();
-            const clampedPos = clampToCanvas(mousePos.x, mousePos.y, bounds, radius);
+            let finalPos = clampToCanvas(mousePos.x, mousePos.y, bounds, radius);
+
+            // Apply snap-to-grid if enabled
+            if (this.getSnapEnabled()) {
+                const gridSize = this.getGridSize();
+                finalPos = snapToGrid(finalPos.x, finalPos.y, gridSize);
+                // Re-clamp after snapping to ensure we stay in bounds
+                finalPos = clampToCanvas(finalPos.x, finalPos.y, bounds, radius);
+            }
 
             // Notify start if this is the first drag frame
             if (!wasAlreadyDragging) {
@@ -79,12 +91,12 @@ export class DragController {
             }
 
             // Notify move
-            this.onDragMove(this.draggedNode, clampedPos);
+            this.onDragMove(this.draggedNode, finalPos);
 
             return {
                 isDragging: true,
                 shouldStartDrag: !wasAlreadyDragging,
-                clampedPos
+                clampedPos: finalPos
             };
         }
 

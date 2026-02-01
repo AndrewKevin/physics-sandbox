@@ -6,7 +6,7 @@
 import { StructureManager, Node, MATERIALS } from './structure.js';
 import { Renderer } from './renderer.js';
 import { UIController } from './ui.js';
-import { clampToCanvas } from './position-utils.js';
+import { clampToCanvas, snapToGrid } from './position-utils.js';
 import { DragController } from './drag-controller.js';
 import { HoverController } from './hover-controller.js';
 import { PhysicsController } from './physics-controller.js';
@@ -36,6 +36,8 @@ class PhysicsSandbox {
         this.drag = new DragController({
             getBounds: () => ({ width: this.renderer.width, groundY: this.groundY }),
             getNodeRadius: () => Node.radius,
+            getSnapEnabled: () => this.ui?.snapToGrid ?? false,
+            getGridSize: () => Renderer.GRID_SIZE,
             onDragStart: (node) => {
                 // Cursor feedback handled in onMouseMove
             },
@@ -162,7 +164,9 @@ class PhysicsSandbox {
             structure: this.structure,
             ui: this.ui,
             getGroundY: () => this.groundY,
+            getCanvasWidth: () => this.renderer.width,
             getNodeRadius: () => Node.radius,
+            getGridSize: () => Renderer.GRID_SIZE,
             onStatsUpdate: () => this.updateStats()
         });
     }
@@ -347,8 +351,15 @@ class PhysicsSandbox {
         if (currentlySelectedNode) {
             // Create new node and connect to selected node
             const bounds = { width: this.renderer.width, groundY: this.groundY };
-            const clamped = clampToCanvas(x, y, bounds, Node.radius);
-            const newNode = this.structure.addNode(clamped.x, clamped.y);
+
+            // Clamp first, then snap, then re-clamp (ensures final position is on-grid AND in-bounds)
+            let pos = clampToCanvas(x, y, bounds, Node.radius);
+            if (this.ui.snapToGrid) {
+                pos = snapToGrid(pos.x, pos.y, Renderer.GRID_SIZE);
+                pos = clampToCanvas(pos.x, pos.y, bounds, Node.radius);
+            }
+
+            const newNode = this.structure.addNode(pos.x, pos.y);
             this.structure.addSegment(currentlySelectedNode, newNode, this.material);
 
             // Select new node to continue chaining

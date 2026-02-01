@@ -376,4 +376,61 @@ describe('DragController', () => {
             expect(result.isDragging).toBe(true);
         });
     });
+
+    describe('snap to grid', () => {
+        let snapController;
+        let snapCallbacks;
+
+        beforeEach(() => {
+            snapCallbacks = {
+                getBounds: () => ({ width: 800, groundY: 540 }),
+                getNodeRadius: () => 12,
+                getSnapEnabled: () => true,
+                getGridSize: () => 20,
+                onDragStart: vi.fn(),
+                onDragMove: vi.fn(),
+                onDragEnd: vi.fn(),
+                onDragCancel: vi.fn()
+            };
+            snapController = new DragController(snapCallbacks);
+        });
+
+        it('should snap position to grid when enabled', () => {
+            const node = { x: 100, y: 100 };
+            snapController.beginPotentialDrag(node, { x: 100, y: 100 });
+            snapController.updateDrag({ x: 125, y: 135 }); // Should snap to 120, 140
+
+            expect(snapCallbacks.onDragMove).toHaveBeenCalledWith(
+                node,
+                { x: 120, y: 140 }
+            );
+        });
+
+        it('should not snap when disabled', () => {
+            snapCallbacks.getSnapEnabled = () => false;
+            const noSnapController = new DragController(snapCallbacks);
+
+            const node = { x: 100, y: 100 };
+            noSnapController.beginPotentialDrag(node, { x: 100, y: 100 });
+            noSnapController.updateDrag({ x: 125, y: 135 });
+
+            expect(snapCallbacks.onDragMove).toHaveBeenCalledWith(
+                node,
+                { x: 125, y: 135 }
+            );
+        });
+
+        it('should clamp after snapping if position goes out of bounds', () => {
+            const node = { x: 100, y: 100 };
+            snapController.beginPotentialDrag(node, { x: 100, y: 100 });
+            // 795 clamps to 788 first, then snaps to 780 (788/20 = 39.4 rounds to 39)
+            // 780 is within bounds so stays at 780
+            snapController.updateDrag({ x: 795, y: 100 });
+
+            expect(snapCallbacks.onDragMove).toHaveBeenCalledWith(
+                node,
+                { x: 780, y: 100 }
+            );
+        });
+    });
 });

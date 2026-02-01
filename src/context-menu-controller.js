@@ -5,7 +5,7 @@
 
 import { ContextMenu } from './context-menu.js';
 import { WeightPopup } from './weight-popup.js';
-import { getPositionOnSegment } from './position-utils.js';
+import { getPositionOnSegment, snapToGrid, clampToCanvas } from './position-utils.js';
 
 export class ContextMenuController {
     /**
@@ -13,14 +13,18 @@ export class ContextMenuController {
      * @param {Object} options.structure - StructureManager instance
      * @param {Object} options.ui - UIController instance
      * @param {Function} options.getGroundY - Returns current ground Y position
+     * @param {Function} options.getCanvasWidth - Returns current canvas width
      * @param {Function} options.getNodeRadius - Returns node radius
+     * @param {Function} [options.getGridSize] - Returns grid size in pixels (default 20)
      * @param {Function} [options.onStatsUpdate] - Called when stats need updating
      */
     constructor(options = {}) {
         this.structure = options.structure;
         this.ui = options.ui;
         this.getGroundY = options.getGroundY ?? (() => 540);
+        this.getCanvasWidth = options.getCanvasWidth ?? (() => 800);
         this.getNodeRadius = options.getNodeRadius ?? (() => 12);
+        this.getGridSize = options.getGridSize ?? (() => 20);
         this.onStatsUpdate = options.onStatsUpdate ?? (() => {});
 
         this.contextMenu = null;
@@ -187,15 +191,24 @@ export class ContextMenuController {
      * @returns {Array} Menu items
      */
     getEmptySpaceMenuItems(x, y) {
-        const groundY = this.getGroundY();
+        const bounds = {
+            width: this.getCanvasWidth(),
+            groundY: this.getGroundY()
+        };
         const nodeRadius = this.getNodeRadius();
-        const clampedY = Math.min(y, groundY - nodeRadius);
+
+        // Clamp first, then snap, then re-clamp (ensures final position is on-grid AND in-bounds)
+        let pos = clampToCanvas(x, y, bounds, nodeRadius);
+        if (this.ui.snapToGrid) {
+            pos = snapToGrid(pos.x, pos.y, this.getGridSize());
+            pos = clampToCanvas(pos.x, pos.y, bounds, nodeRadius);
+        }
 
         return [
             {
                 label: '📍  Add Node',
                 callback: () => {
-                    const node = this.structure.addNode(x, clampedY);
+                    const node = this.structure.addNode(pos.x, pos.y);
                     this.structure.selectNode(node);
                     this.ui.updateSelection({ node });
                     this.onStatsUpdate();

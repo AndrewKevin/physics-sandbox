@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getPositionOnSegment, clampToCanvas, distance } from './position-utils.js';
+import { getPositionOnSegment, clampToCanvas, distance, snapToGrid } from './position-utils.js';
 
 /**
  * Intent-focused tests describing real usage scenarios
@@ -203,5 +203,129 @@ describe('distance', () => {
     it('handles negative coordinates', () => {
         const result = distance({ x: -50, y: -50 }, { x: 50, y: 50 });
         expect(result).toBeCloseTo(Math.sqrt(20000));
+    });
+});
+
+describe('snapToGrid', () => {
+    const gridSize = 20;
+
+    it('snaps to nearest grid intersection', () => {
+        const result = snapToGrid(25, 35, gridSize);
+        expect(result).toEqual({ x: 20, y: 40 });
+    });
+
+    it('returns exact position if already on grid', () => {
+        const result = snapToGrid(40, 60, gridSize);
+        expect(result).toEqual({ x: 40, y: 60 });
+    });
+
+    it('snaps to origin when close to 0,0', () => {
+        const result = snapToGrid(8, 5, gridSize);
+        expect(result).toEqual({ x: 0, y: 0 });
+    });
+
+    it('rounds up when exactly at midpoint', () => {
+        // Math.round(10/20) * 20 = 0.5 * 20 = 10, rounds to 1, so 20
+        const result = snapToGrid(10, 10, gridSize);
+        expect(result).toEqual({ x: 20, y: 20 });
+    });
+
+    it('rounds down when just below midpoint', () => {
+        const result = snapToGrid(9, 9, gridSize);
+        expect(result).toEqual({ x: 0, y: 0 });
+    });
+
+    it('handles different grid sizes', () => {
+        const result = snapToGrid(35, 45, 50);
+        expect(result).toEqual({ x: 50, y: 50 });
+    });
+
+    it('handles large coordinates', () => {
+        const result = snapToGrid(512, 738, gridSize);
+        expect(result).toEqual({ x: 520, y: 740 });
+    });
+});
+
+describe('Snap-to-grid near boundaries (clamp→snap→clamp pattern)', () => {
+    const bounds = { width: 800, groundY: 540 };
+    const radius = 12;
+    const gridSize = 20;
+
+    /**
+     * Helper to apply clamp→snap→clamp pattern
+     */
+    function snapWithinBounds(x, y) {
+        let pos = clampToCanvas(x, y, bounds, radius);
+        pos = snapToGrid(pos.x, pos.y, gridSize);
+        pos = clampToCanvas(pos.x, pos.y, bounds, radius);
+        return pos;
+    }
+
+    /**
+     * Check if a position is on a grid line
+     */
+    function isOnGrid(value) {
+        return value % gridSize === 0;
+    }
+
+    it('snaps to grid when clicking near right edge', () => {
+        // Click at x=792, which is > max X (788)
+        // Clamp: 792 → 788
+        // Snap: 788 → 780 (39.4 rounds to 39)
+        // Re-clamp: 780 stays (within bounds)
+        const result = snapWithinBounds(792, 300);
+
+        expect(result.x).toBe(780);
+        expect(isOnGrid(result.x)).toBe(true);
+    });
+
+    it('snaps to grid when clicking near bottom edge', () => {
+        // Click at y=535, which is > max Y (528)
+        // Clamp: 535 → 528
+        // Snap: 528 → 520 (26.4 rounds to 26)
+        // Re-clamp: 520 stays (within bounds)
+        const result = snapWithinBounds(300, 535);
+
+        expect(result.y).toBe(520);
+        expect(isOnGrid(result.y)).toBe(true);
+    });
+
+    it('snaps to grid when clicking near top-left corner', () => {
+        // Click at (5, 5), which is < min (12, 12)
+        // Clamp: (5, 5) → (12, 12)
+        // Snap: (12, 12) → (20, 20) (0.6 rounds to 1)
+        // Re-clamp: (20, 20) stays
+        const result = snapWithinBounds(5, 5);
+
+        expect(result.x).toBe(20);
+        expect(result.y).toBe(20);
+        expect(isOnGrid(result.x)).toBe(true);
+        expect(isOnGrid(result.y)).toBe(true);
+    });
+
+    it('final position is always on grid AND within bounds', () => {
+        // Test several edge positions
+        const edgeCases = [
+            { x: 0, y: 0 },           // Top-left corner
+            { x: 800, y: 0 },         // Top-right corner
+            { x: 0, y: 540 },         // Bottom-left corner
+            { x: 800, y: 540 },       // Bottom-right corner
+            { x: 795, y: 300 },       // Near right edge
+            { x: 300, y: 535 },       // Near bottom edge
+        ];
+
+        for (const { x, y } of edgeCases) {
+            const result = snapWithinBounds(x, y);
+
+            // Must be on grid
+            expect(isOnGrid(result.x)).toBe(true);
+            expect(isOnGrid(result.y)).toBe(true);
+
+            // Must be within bounds
+            expect(result.x).toBeGreaterThanOrEqual(radius);
+            expect(result.x).toBeLessThanOrEqual(bounds.width - radius);
+            expect(result.y).toBeGreaterThanOrEqual(radius);
+            expect(result.y).toBeLessThanOrEqual(bounds.groundY - radius);
+        }
     });
 });

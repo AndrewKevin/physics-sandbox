@@ -58,3 +58,17 @@ export function distance(posA, posB) {
     const dy = posB.y - posA.y;
     return Math.sqrt(dx * dx + dy * dy);
 }
+
+/**
+ * Snap a position to the nearest grid intersection.
+ * @param {number} x - X position
+ * @param {number} y - Y position
+ * @param {number} gridSize - Size of grid cells in pixels
+ * @returns {{x: number, y: number}} Snapped position
+ */
+export function snapToGrid(x, y, gridSize) {
+    return {
+        x: Math.round(x / gridSize) * gridSize,
+        y: Math.round(y / gridSize) * gridSize
+    };
+}
