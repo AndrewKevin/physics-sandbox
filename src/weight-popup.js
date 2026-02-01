@@ -57,7 +57,6 @@ export class WeightPopup {
         return `
             <div class="weight-popup-header">
                 <span class="weight-popup-title">Weight #${weight.id}</span>
-                <button class="weight-popup-delete" title="Delete weight">✕</button>
             </div>
             <div class="weight-popup-controls">
                 <div class="scrubber-row">
@@ -80,6 +79,7 @@ export class WeightPopup {
                     </div>
                 </div>
                 ` : ''}
+                <div class="weight-popup-delete-row">Delete Weight</div>
             </div>
         `;
     }
@@ -105,9 +105,9 @@ export class WeightPopup {
     }
 
     bindEvents() {
-        // Delete button
-        const deleteBtn = this.popup.querySelector('.weight-popup-delete');
-        deleteBtn?.addEventListener('click', () => {
+        // Delete menu item
+        const deleteRow = this.popup.querySelector('.weight-popup-delete-row');
+        deleteRow?.addEventListener('click', () => {
             this.onDelete?.(this.weight);
             this.close();
         });

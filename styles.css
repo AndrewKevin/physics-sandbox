@@ -937,25 +937,23 @@ body::after {
     color: var(--accent-4);
 }
 
-.weight-popup-delete {
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255, 58, 242, 0.2);
+.weight-popup-delete-row {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: rgba(255, 58, 242, 0.1);
     border: 2px solid var(--accent-1);
-    border-radius: 6px;
+    border-radius: 8px;
     color: var(--accent-1);
     font-size: 14px;
+    font-weight: 600;
+    text-align: center;
     cursor: pointer;
     transition: all 0.15s ease-out;
 }
 
-.weight-popup-delete:hover {
+.weight-popup-delete-row:hover {
     background: var(--accent-1);
     color: var(--bg);
-    transform: scale(1.1);
 }
 
 .weight-popup-controls {

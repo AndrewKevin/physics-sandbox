@@ -289,37 +289,6 @@ class PhysicsSandbox {
         return Math.max(0, Math.min(1, t));
     }
 
-    /**
-     * Generate menu items for a weight context menu.
-     * @param {Weight} weight - The weight to create menu items for
-     * @returns {Array} Array of menu item objects
-     */
-    getWeightMenuItems(weight) {
-        return [
-            {
-                label: '⚙️  Edit Properties',
-                callback: () => {
-                    this.structure.selectWeight(weight);
-                    this.ui.updateSelection({ weight });
-                    // Show the weight popup for editing
-                    const pos = weight.getPosition();
-                    const rect = this.canvas.getBoundingClientRect();
-                    this.weightPopup.show(weight, rect.left + pos.x, rect.top + pos.y);
-                }
-            },
-            {
-                label: '✕  Delete Weight',
-                callback: () => {
-                    if (this.structure.weights.includes(weight)) {
-                        this.structure.removeWeight(weight);
-                        this.ui.updateSelection({});
-                        this.updateStats();
-                    }
-                }
-            }
-        ];
-    }
-
     initEvents() {
         // Mouse events on canvas
         this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
@@ -726,8 +695,12 @@ class PhysicsSandbox {
         // Check for weight first (smallest, highest priority)
         const weight = this.structure.findWeightAt(pos.x, pos.y);
         if (weight) {
-            const menuItems = this.getWeightMenuItems(weight);
-            this.showContextMenu(e, menuItems);
+            // Close all existing menus first
+            this.closeAllMenus();
+            // Show weight popup directly for editing
+            this.structure.selectWeight(weight);
+            this.ui.updateSelection({ weight });
+            this.weightPopup.show(weight, e.clientX, e.clientY);
             return;
         }
 
