@@ -12,6 +12,7 @@ import { HoverController } from './hover-controller.js';
 import { PhysicsController } from './physics-controller.js';
 import { ContextMenuController } from './context-menu-controller.js';
 import { InputController } from './input-controller.js';
+import { SelectionBoxController } from './selection-box-controller.js';
 import { StateModal } from './state-modal.js';
 import {
     saveViewSettings,
@@ -41,17 +42,24 @@ class PhysicsSandbox {
         this.mouseX = 0;
         this.mouseY = 0;
 
-        // Drag controller
+        // Drag controller (supports both single and multi-node dragging)
         this.drag = new DragController({
             getBounds: () => ({ width: this.renderer.width, groundY: this.groundY }),
             getNodeRadius: () => Node.radius,
             getSnapEnabled: () => this.ui?.snapToGrid ?? false,
             getGridSize: () => Renderer.GRID_SIZE,
+            getSelectedNodes: () => this.structure?.selectedNodes ?? [],
             onDragStart: (node) => {
                 // Cursor feedback handled in onMouseMove
             },
             onDragMove: (node, pos) => {
                 node.updatePosition(pos.x, pos.y);
+            },
+            onMultiDragMove: (positions) => {
+                // Update all nodes in multi-drag
+                for (const [node, pos] of positions) {
+                    node.updatePosition(pos.x, pos.y);
+                }
             },
             onDragEnd: (node) => {
                 // Update rest lengths of connected segments
@@ -62,10 +70,55 @@ class PhysicsSandbox {
                 }
                 this.markStructureDirty();
             },
+            onMultiDragEnd: (nodes) => {
+                // Update rest lengths for all moved nodes
+                for (const node of nodes) {
+                    for (const segment of this.structure.segments) {
+                        if (segment.nodeA === node || segment.nodeB === node) {
+                            segment.restLength = segment.calculateLength();
+                        }
+                    }
+                }
+                this.markStructureDirty();
+            },
             onDragCancel: (node, originalPos) => {
                 node.updatePosition(originalPos.x, originalPos.y);
             }
         });
+
+        // Selection box controller for multi-select
+        this.selectionBox = new SelectionBoxController({
+            findNodesInRect: (rect) => this.structure.findNodesInRect(rect),
+            onSelectionStart: () => {
+                // Clear hover during selection
+                this.hover.clear();
+            },
+            onSelectionMove: (rect, nodesInside) => {
+                // Update render state for selection box preview
+                this.selectionBoxState = { rect, nodesInside };
+            },
+            onSelectionEnd: (nodes, additive) => {
+                if (nodes.length > 0) {
+                    if (additive) {
+                        this.structure.addMultipleToSelection(nodes);
+                    } else {
+                        this.structure.selectMultipleNodes(nodes);
+                    }
+                    this.ui.updateSelection({ nodes: this.structure.selectedNodes });
+                } else if (!additive) {
+                    // Empty selection box without shift = clear selection
+                    this.structure.clearSelection();
+                    this.ui.updateSelection({});
+                }
+                this.selectionBoxState = null;
+            },
+            onSelectionCancel: () => {
+                this.selectionBoxState = null;
+            }
+        });
+
+        // Selection box render state
+        this.selectionBoxState = null;
 
         // Animation reference
         this.animationId = null;
@@ -173,6 +226,32 @@ class PhysicsSandbox {
         // Wire up save/load callbacks
         this.ui.setSaveCallback(() => this.saveState());
         this.ui.setLoadCallback(() => this.loadState());
+
+        // Wire up bulk action callbacks for multi-select
+        this.ui.setBulkActionCallback(() => {
+            // Refresh the multi-selection display and save
+            this.ui.updateSelection({ nodes: this.structure.selectedNodes });
+            this.updateStats();
+            this.markStructureDirty();
+        });
+
+        this.ui.setBulkDeleteCallback((nodes) => {
+            // Delete all selected nodes
+            for (const node of [...nodes].reverse()) {
+                this.structure.removeNode(node);
+            }
+            this.structure.clearSelection();
+            this.ui.updateSelection({});
+            this.updateStats();
+            this.markStructureDirty();
+        });
+
+        this.ui.setBulkMassCallback((nodes, mass) => {
+            // Refresh the multi-selection display and save
+            this.ui.updateSelection({ nodes: this.structure.selectedNodes });
+            this.updateStats();
+            this.markStructureDirty();
+        });
     }
 
     initContextMenu() {
@@ -197,12 +276,17 @@ class PhysicsSandbox {
             findElementAt: (x, y) => this.findElementAt(x, y),
             getDrag: () => this.drag,
             getHover: () => this.hover,
+            getSelectionBox: () => this.selectionBox,
             onMousePosChange: (x, y) => {
                 this.mouseX = x;
                 this.mouseY = y;
             },
             onClick: (x, y) => {
                 this.handleClick(x, y);
+                this.updateStats();
+            },
+            onShiftClick: (x, y) => {
+                this.handleShiftClick(x, y);
                 this.updateStats();
             },
             onRightClick: (e, x, y) => {
@@ -297,11 +381,11 @@ class PhysicsSandbox {
     }
 
     /**
-     * Delete the currently selected element (weight, node, or segment).
+     * Delete the currently selected element(s) (weight, node(s), or segment).
      */
     deleteSelectedElement() {
         const selectedWeight = this.structure.selectedWeight;
-        const selectedNode = this.structure.selectedNodes[0];  // selectedNodes is an array
+        const selectedNodes = this.structure.selectedNodes;
         const selectedSegment = this.structure.selectedSegment;
 
         if (selectedWeight) {
@@ -314,14 +398,20 @@ class PhysicsSandbox {
             this.ui.updateSelection({});
             this.updateStats();
             this.markStructureDirty();
-        } else if (selectedNode) {
-            // Close popup if it's showing this node or a weight attached to this node
-            if (this.menus.isNodePopupOpen() && this.menus.popupNode === selectedNode) {
-                this.closeAllMenus();
-            } else if (this.menus.isWeightPopupOpen() && this.menus.popupWeight?.isAttachedTo(selectedNode)) {
-                this.closeAllMenus();
+        } else if (selectedNodes.length > 0) {
+            // Handle both single and multi-node deletion
+            for (const node of selectedNodes) {
+                // Close popup if it's showing this node or a weight attached to this node
+                if (this.menus.isNodePopupOpen() && this.menus.popupNode === node) {
+                    this.closeAllMenus();
+                } else if (this.menus.isWeightPopupOpen() && this.menus.popupWeight?.isAttachedTo(node)) {
+                    this.closeAllMenus();
+                }
             }
-            this.structure.removeNode(selectedNode);
+            // Remove all selected nodes (in reverse to avoid index issues)
+            for (const node of [...selectedNodes].reverse()) {
+                this.structure.removeNode(node);
+            }
             this.structure.clearSelection();
             this.ui.updateSelection({});
             this.updateStats();
@@ -361,6 +451,25 @@ class PhysicsSandbox {
     }
 
     /**
+     * Handle shift+click for additive node selection.
+     */
+    handleShiftClick(x, y) {
+        const node = this.structure.findNodeAt(x, y);
+        if (node) {
+            this.structure.toggleNodeSelection(node);
+            const selectedNodes = this.structure.selectedNodes;
+            if (selectedNodes.length > 1) {
+                this.ui.updateSelection({ nodes: selectedNodes });
+            } else if (selectedNodes.length === 1) {
+                this.ui.updateSelection({ node: selectedNodes[0] });
+            } else {
+                this.ui.updateSelection({});
+            }
+        }
+        // Shift+click on empty space does nothing (preserves selection)
+    }
+
+    /**
      * Handle click on a weight - toggles selection.
      */
     handleWeightClick(weight) {
@@ -374,22 +483,36 @@ class PhysicsSandbox {
     }
 
     /**
-     * Handle click on a node - selects it, or creates segment if another node is selected.
+     * Handle click on a node - selects it, or creates segments from all selected nodes.
      * Enables node chaining by always selecting the clicked node.
      */
     handleNodeClick(node) {
-        const currentlySelectedNode = this.structure.selectedNodes[0];
+        const selectedNodes = this.structure.selectedNodes;
 
-        // Toggle off if clicking same node
-        if (currentlySelectedNode === node) {
-            this.structure.clearSelection();
-            this.ui.updateSelection({});
+        // If clicking on an already-selected node, toggle/deselect it
+        if (selectedNodes.includes(node)) {
+            if (selectedNodes.length === 1) {
+                // Only node selected - clear selection
+                this.structure.clearSelection();
+                this.ui.updateSelection({});
+            } else {
+                // Multiple nodes selected - remove this one from selection
+                this.structure.removeFromSelection(node);
+                const remaining = this.structure.selectedNodes;
+                if (remaining.length === 1) {
+                    this.ui.updateSelection({ node: remaining[0] });
+                } else {
+                    this.ui.updateSelection({ nodes: remaining });
+                }
+            }
             return;
         }
 
-        // Create segment if another node is selected
-        if (currentlySelectedNode) {
-            this.structure.addSegment(currentlySelectedNode, node, this.material);
+        // Create segments from ALL selected nodes to clicked node
+        if (selectedNodes.length > 0) {
+            for (const selectedNode of selectedNodes) {
+                this.structure.addSegment(selectedNode, node, this.material);
+            }
             this.markStructureDirty();
         }
 
@@ -412,14 +535,14 @@ class PhysicsSandbox {
     }
 
     /**
-     * Handle click on empty space - creates new node and connects if node selected,
+     * Handle click on empty space - creates new node and connects to all selected nodes,
      * otherwise clears selection.
      */
     handleEmptySpaceClick(x, y) {
-        const currentlySelectedNode = this.structure.selectedNodes[0];
+        const selectedNodes = this.structure.selectedNodes;
 
-        if (currentlySelectedNode) {
-            // Create new node and connect to selected node
+        if (selectedNodes.length > 0) {
+            // Create new node and connect to all selected nodes
             const bounds = { width: this.renderer.width, groundY: this.groundY };
 
             // Clamp first, then snap, then re-clamp (ensures final position is on-grid AND in-bounds)
@@ -430,7 +553,11 @@ class PhysicsSandbox {
             }
 
             const newNode = this.structure.addNode(pos.x, pos.y);
-            this.structure.addSegment(currentlySelectedNode, newNode, this.material);
+
+            // Connect new node to all selected nodes
+            for (const selectedNode of selectedNodes) {
+                this.structure.addSegment(selectedNode, newNode, this.material);
+            }
             this.markStructureDirty();
 
             // Select new node to continue chaining
@@ -607,7 +734,8 @@ class PhysicsSandbox {
             groundY: this.groundY,
             mouseX: this.mouseX,
             mouseY: this.mouseY,
-            showStressLabels: this.ui.showStressLabels
+            showStressLabels: this.ui.showStressLabels,
+            selectionBox: this.selectionBoxState
         });
 
         this.animationId = requestAnimationFrame(() => this.animate());

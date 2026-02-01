@@ -177,9 +177,45 @@ export class UIController {
     }
 
     updateSelection(selection) {
-        const { node, segment, weight } = selection;
+        const { node, segment, weight, nodes } = selection;
 
-        // Update selection info
+        // Handle multi-node selection
+        if (nodes && nodes.length > 1) {
+            const pinnedCount = nodes.filter(n => n.fixed).length;
+            const totalMass = nodes.reduce((sum, n) => sum + n.mass, 0);
+            const avgMass = totalMass / nodes.length;
+            const allPinned = pinnedCount === nodes.length;
+
+            if (this.elements.selectionInfo) {
+                this.elements.selectionInfo.innerHTML = `
+                    <p><strong>${nodes.length} nodes selected</strong></p>
+                    <p>Pinned: ${pinnedCount} / ${nodes.length}</p>
+                    <p>Total mass: ${totalMass.toFixed(1)} kg</p>
+                    <div class="bulk-mass-control">
+                        <label for="bulk-mass">Set mass (each):</label>
+                        <div class="bulk-mass-input-row">
+                            <input type="number" id="bulk-mass" min="0.1" max="50" step="0.5" value="${avgMass.toFixed(1)}">
+                            <span>kg</span>
+                            <button class="bulk-action-btn small" id="bulk-mass-apply">Apply</button>
+                        </div>
+                    </div>
+                    <div class="multi-select-actions">
+                        <button class="bulk-action-btn" id="bulk-pin">
+                            ${allPinned ? 'Unpin All' : 'Pin All'}
+                        </button>
+                        <button class="bulk-action-btn danger" id="bulk-delete">
+                            Delete All
+                        </button>
+                    </div>
+                    <p class="hint-text">Drag any node to move all</p>
+                `;
+            }
+            this.elements.segmentOptions?.classList.add('disabled');
+            this.bindMultiSelectActions(nodes);
+            return;
+        }
+
+        // Update selection info (single element)
         if (node) {
             if (this.elements.selectionInfo) {
                 this.elements.selectionInfo.innerHTML = `
@@ -300,6 +336,64 @@ export class UIController {
 
     setLoadCallback(callback) {
         this.onLoad = callback;
+    }
+
+    // Set callbacks for multi-select actions
+    setBulkActionCallback(callback) {
+        this.onBulkAction = callback;
+    }
+
+    setBulkDeleteCallback(callback) {
+        this.onBulkDelete = callback;
+    }
+
+    setBulkMassCallback(callback) {
+        this.onBulkMass = callback;
+    }
+
+    /**
+     * Bind event handlers for multi-select action buttons.
+     * @param {Node[]} nodes - Selected nodes
+     */
+    bindMultiSelectActions(nodes) {
+        // Use setTimeout to ensure DOM elements exist before binding
+        setTimeout(() => {
+            const pinBtn = document.getElementById('bulk-pin');
+            const deleteBtn = document.getElementById('bulk-delete');
+            const massInput = document.getElementById('bulk-mass');
+            const massApplyBtn = document.getElementById('bulk-mass-apply');
+
+            if (pinBtn) {
+                pinBtn.onclick = () => {
+                    const allPinned = nodes.every(n => n.fixed);
+                    nodes.forEach(n => n.setFixed(!allPinned));
+                    this.onBulkAction?.();
+                };
+            }
+
+            if (deleteBtn) {
+                deleteBtn.onclick = () => {
+                    this.onBulkDelete?.(nodes);
+                };
+            }
+
+            if (massApplyBtn && massInput) {
+                massApplyBtn.onclick = () => {
+                    const mass = parseFloat(massInput.value);
+                    if (!isNaN(mass) && mass >= 0.1 && mass <= 50) {
+                        nodes.forEach(n => n.setMass(mass));
+                        this.onBulkMass?.(nodes, mass);
+                    }
+                };
+
+                // Also apply on Enter key
+                massInput.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        massApplyBtn.click();
+                    }
+                };
+            }
+        }, 0);
     }
 
     get showStressLabels() {

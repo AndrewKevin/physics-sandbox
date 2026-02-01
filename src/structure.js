@@ -490,6 +490,100 @@ export class StructureManager {
         this.selectedWeight = weight;
     }
 
+    /**
+     * Add a node to the current selection without clearing.
+     * Used for shift+click additive selection.
+     * @param {Node} node - Node to add
+     */
+    addToSelection(node) {
+        if (!this.selectedNodes.includes(node)) {
+            node.selected = true;
+            this.selectedNodes.push(node);
+        }
+        // Clear segment/weight selection when multi-selecting nodes
+        if (this.selectedSegment) {
+            this.selectedSegment.selected = false;
+            this.selectedSegment = null;
+        }
+        if (this.selectedWeight) {
+            this.selectedWeight.selected = false;
+            this.selectedWeight = null;
+        }
+    }
+
+    /**
+     * Remove a node from selection.
+     * @param {Node} node - Node to remove
+     */
+    removeFromSelection(node) {
+        const index = this.selectedNodes.indexOf(node);
+        if (index > -1) {
+            node.selected = false;
+            this.selectedNodes.splice(index, 1);
+        }
+    }
+
+    /**
+     * Toggle node in selection (for shift+click).
+     * @param {Node} node - Node to toggle
+     */
+    toggleNodeSelection(node) {
+        if (this.selectedNodes.includes(node)) {
+            this.removeFromSelection(node);
+        } else {
+            this.addToSelection(node);
+        }
+    }
+
+    /**
+     * Select multiple nodes at once (replaces current selection).
+     * Used when selection box completes without shift.
+     * @param {Node[]} nodes - Array of nodes to select
+     */
+    selectMultipleNodes(nodes) {
+        this.clearSelection();
+        for (const node of nodes) {
+            node.selected = true;
+            this.selectedNodes.push(node);
+        }
+    }
+
+    /**
+     * Add multiple nodes to selection (for shift+selection box).
+     * @param {Node[]} nodes - Array of nodes to add
+     */
+    addMultipleToSelection(nodes) {
+        for (const node of nodes) {
+            this.addToSelection(node);
+        }
+    }
+
+    /**
+     * Find all nodes within a rectangular bounds.
+     * @param {Object} rect - { x, y, width, height } rectangle
+     * @returns {Node[]} Array of nodes inside the rectangle
+     */
+    findNodesInRect(rect) {
+        const { x, y, width, height } = rect;
+        const minX = x;
+        const maxX = x + width;
+        const minY = y;
+        const maxY = y + height;
+
+        return this.nodes.filter(node =>
+            node.x >= minX && node.x <= maxX &&
+            node.y >= minY && node.y <= maxY
+        );
+    }
+
+    /**
+     * Check if multiple nodes are selected.
+     * @returns {boolean}
+     */
+    hasMultipleNodesSelected() {
+        return this.selectedNodes.length > 1;
+    }
+
     updateAllStress() {
         let maxStress = 0;
         for (const segment of this.segments) {

@@ -14,8 +14,10 @@ export class InputController {
      * @param {Function} options.findElementAt - (x, y) => {type, element}|null
      * @param {Function} options.getDrag - () => DragController
      * @param {Function} options.getHover - () => HoverController
+     * @param {Function} [options.getSelectionBox] - () => SelectionBoxController|null
      * @param {Function} options.onMousePosChange - (x, y) => void
      * @param {Function} options.onClick - (x, y) => void
+     * @param {Function} [options.onShiftClick] - (x, y) => void - Called for shift+click
      * @param {Function} options.onRightClick - (e, x, y) => void
      * @param {Function} options.onEscape - () => void
      * @param {Function} options.onDelete - () => void
@@ -27,6 +29,9 @@ export class InputController {
 
         // Touch state
         this.touchStartPos = null;
+
+        // Modifier key state
+        this.shiftHeld = false;
 
         this.bindEvents();
     }
@@ -47,8 +52,14 @@ export class InputController {
         this.canvas.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
         this.canvas.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false });
 
-        // Keyboard events
-        window.addEventListener('keydown', (e) => this.onKeyDown(e));
+        // Keyboard events (including shift key tracking)
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Shift') this.shiftHeld = true;
+            this.onKeyDown(e);
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'Shift') this.shiftHeld = false;
+        });
 
         // Window resize
         window.addEventListener('resize', () => this.options.onWindowResize?.());
@@ -86,15 +97,30 @@ export class InputController {
         const pos = this.getMousePos(e);
         const node = this.options.findNodeAt(pos.x, pos.y);
         const drag = this.options.getDrag();
+        const selectionBox = this.options.getSelectionBox?.();
 
         if (node) {
+            // Clicking on a node - start potential drag
             drag.beginPotentialDrag(node, pos);
+        } else if (selectionBox) {
+            // Clicking on empty space - start potential selection box
+            selectionBox.beginSelection(pos, this.shiftHeld);
         }
     }
 
     onMouseUp(e) {
         if (e.button !== 0) return;
-        this.options.getDrag().endDrag();
+
+        const drag = this.options.getDrag();
+        const selectionBox = this.options.getSelectionBox?.();
+
+        // End drag first (if active)
+        drag.endDrag();
+
+        // End selection box (if tracking)
+        if (selectionBox?.isTracking) {
+            selectionBox.endSelection();
+        }
     }
 
     onMouseMove(e) {
@@ -103,12 +129,22 @@ export class InputController {
 
         const drag = this.options.getDrag();
         const hover = this.options.getHover();
+        const selectionBox = this.options.getSelectionBox?.();
 
-        // Handle dragging
+        // Handle node dragging (takes priority)
         if (!this.options.isSimulating() && drag.isTracking) {
             const result = drag.updateDrag(pos);
             if (result.isDragging) {
                 this.canvas.style.cursor = 'grabbing';
+                return;
+            }
+        }
+
+        // Handle selection box
+        if (!this.options.isSimulating() && selectionBox?.isTracking) {
+            const result = selectionBox.updateSelection(pos);
+            if (result.isSelecting) {
+                this.canvas.style.cursor = 'crosshair';
                 return;
             }
         }
@@ -126,6 +162,7 @@ export class InputController {
         if (this.options.isSimulating()) return;
 
         const drag = this.options.getDrag();
+        const selectionBox = this.options.getSelectionBox?.();
 
         // Skip click if we just finished dragging
         if (drag.shouldSuppressClick) {
@@ -133,8 +170,20 @@ export class InputController {
             return;
         }
 
+        // Skip click if we just finished selection box
+        if (selectionBox?.shouldSuppressClick) {
+            selectionBox.clearClickSuppression();
+            return;
+        }
+
         const pos = this.getMousePos(e);
-        this.options.onClick(pos.x, pos.y);
+
+        // Check for shift+click (additive selection)
+        if (this.shiftHeld && this.options.onShiftClick) {
+            this.options.onShiftClick(pos.x, pos.y);
+        } else {
+            this.options.onClick(pos.x, pos.y);
+        }
     }
 
     onRightClick(e) {
@@ -142,6 +191,12 @@ export class InputController {
         e.preventDefault();
 
         if (this.options.isSimulating()) return;
+
+        // Cancel selection box if active
+        const selectionBox = this.options.getSelectionBox?.();
+        if (selectionBox?.isTracking) {
+            selectionBox.cancelSelection();
+        }
 
         const pos = this.getMousePos(e);
         this.options.onRightClick(e, pos.x, pos.y);
@@ -224,6 +279,12 @@ export class InputController {
 
     onKeyDown(e) {
         if (e.key === 'Escape') {
+            // Cancel selection box if active
+            const selectionBox = this.options.getSelectionBox?.();
+            if (selectionBox?.isTracking) {
+                selectionBox.cancelSelection();
+            }
+
             this.options.onEscape();
             return;
         }
@@ -239,5 +300,13 @@ export class InputController {
             e.preventDefault();
             this.options.onDelete();
         }
+    }
+
+    /**
+     * Check if shift key is currently held.
+     * @returns {boolean}
+     */
+    get isShiftHeld() {
+        return this.shiftHeld;
     }
 }

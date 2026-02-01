@@ -283,3 +283,116 @@ When modifying context menus or element interactions:
 - [ ] Menus close properly after action
 - [ ] Detection order is correct (specific elements before general)
 - [ ] Delete/Backspace deletes selected element immediately
+
+## Code Review Guide
+
+Use this checklist when reviewing new features or significant changes.
+
+### 1. Architecture Alignment
+
+| Check | Question |
+|-------|----------|
+| Controller pattern | Does new code follow callback-based decoupling? |
+| Single responsibility | Does each new class/function own exactly one concern? |
+| Testability | Can new components be tested in isolation with mocks? |
+| Extension points | Is the design open for extension without modifying existing code? |
+
+### 2. Code Quality Checks
+
+- [ ] **No dead code**: Remove unused methods, especially superseded factory methods
+- [ ] **Array safety**: Guard against empty array access (e.g., `array[0]` without length check)
+- [ ] **Cleanup**: Event listeners removed in `close()`/`destroy()` methods
+- [ ] **Memory**: Maps/Sets cleared when operations complete
+- [ ] **Null safety**: Use optional chaining (`?.`) for potentially null references
+
+### 3. Test Coverage Requirements
+
+| Component Type | Minimum Tests |
+|----------------|---------------|
+| Controller | State transitions, callbacks, edge cases |
+| State machine | All states + transitions + cancellation |
+| UI component | Show/hide/close, user interactions |
+| Data methods | CRUD operations, boundary conditions |
+
+Tests should follow the **"User Intent"** pattern with descriptive scenario names:
+```javascript
+describe('User draws selection box around nodes', () => {
+    it('should select all nodes inside the box', () => { ... });
+});
+```
+
+### 4. UI/UX Consistency
+
+When adding new UI elements:
+- [ ] Visual style matches existing components (glows, colours, borders)
+- [ ] Popup/menu positioning handles viewport edges
+- [ ] Scrubber controls follow existing drag-to-adjust pattern
+- [ ] Selection visuals use cyan glow + dashed white indicator
+- [ ] Panel updates reflect changes in real-time
+
+### 5. Interaction Flow Verification
+
+For new interaction patterns, document the flow:
+```
+trigger → controller method → state change → callback → UI update
+```
+
+Verify these edge cases:
+- [ ] ESC cancellation restores original state
+- [ ] Click suppression prevents accidental actions after drag/select
+- [ ] Simulation start clears transient state (selection, drag, popups)
+- [ ] Multiple rapid operations don't cause state corruption
+
+### 6. Performance Considerations
+
+| Scale | Approach |
+|-------|----------|
+| < 50 elements | Linear iteration acceptable |
+| 50-200 elements | Consider caching frequent queries |
+| > 200 elements | May need spatial indexing (quadtree) |
+
+Current implementation uses linear iteration for `findNodesInRect()` — acceptable for typical use.
+
+## Adding a New Controller
+
+When creating a new controller (e.g., `SelectionBoxController`):
+
+1. **Define the state machine**:
+   ```javascript
+   // States: idle → tracking → active → (end | cancel)
+   this.isSelecting = false;
+   this.startPos = null;
+   ```
+
+2. **Use callback-based dependencies**:
+   ```javascript
+   constructor(options = {}) {
+       this.findNodesInRect = options.findNodesInRect ?? (() => []);
+       this.onSelectionEnd = options.onSelectionEnd ?? (() => {});
+   }
+   ```
+
+3. **Implement lifecycle methods**:
+   - `begin*()` — Start tracking, store initial state
+   - `update*()` — Process movement, return current state
+   - `end*()` — Complete operation, call success callback
+   - `cancel*()` — Abort operation, restore original state
+   - `reset()` — Clear all state for reuse
+
+4. **Add click suppression** if the operation could be mistaken for a click:
+   ```javascript
+   get shouldSuppressClick() { return this.wasJustActive; }
+   clearClickSuppression() { this.wasJustActive = false; }
+   ```
+
+5. **Wire up in main.js**:
+   - Instantiate with callbacks pointing to orchestrator methods
+   - Route input events via `InputController`
+   - Pass render state to `Renderer`
+
+6. **Write tests** covering:
+   - Initial state
+   - State transitions (threshold detection)
+   - Callback invocation with correct arguments
+   - Cancellation and cleanup
+   - User intent scenarios

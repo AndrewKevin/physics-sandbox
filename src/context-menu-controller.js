@@ -6,6 +6,7 @@
 import { ContextMenu } from './context-menu.js';
 import { WeightPopup } from './weight-popup.js';
 import { NodePopup } from './node-popup.js';
+import { MultiNodePopup } from './multi-node-popup.js';
 import { getPositionOnSegment, snapToGrid, clampToCanvas } from './position-utils.js';
 
 export class ContextMenuController {
@@ -31,9 +32,11 @@ export class ContextMenuController {
         this.contextMenu = null;
         this.weightPopup = new WeightPopup();
         this.nodePopup = new NodePopup();
+        this.multiNodePopup = new MultiNodePopup();
 
         this.setupWeightPopupCallbacks();
         this.setupNodePopupCallbacks();
+        this.setupMultiNodePopupCallbacks();
     }
 
     /**
@@ -102,6 +105,39 @@ export class ContextMenuController {
     }
 
     /**
+     * Set up callbacks for the multi-node popup.
+     */
+    setupMultiNodePopupCallbacks() {
+        this.multiNodePopup.onDelete = (nodes) => {
+            // Remove in reverse order to avoid index issues
+            for (const node of [...nodes].reverse()) {
+                if (this.structure.nodes.includes(node)) {
+                    this.structure.removeNode(node);
+                }
+            }
+            this.structure.clearSelection();
+            this.ui.updateSelection({});
+            this.onStatsUpdate();
+        };
+
+        this.multiNodePopup.onPinToggle = () => {
+            // Update UI to reflect pin changes
+            this.ui.updateSelection({ nodes: this.structure.selectedNodes });
+            this.onStatsUpdate();
+        };
+
+        this.multiNodePopup.onMassChange = () => {
+            // Mass change is reflected in real-time via node.setMass
+            this.ui.updateSelection({ nodes: this.structure.selectedNodes });
+            this.onStatsUpdate();
+        };
+
+        this.multiNodePopup.onClose = () => {
+            // Optionally handle popup close
+        };
+    }
+
+    /**
      * Handle right-click at a position.
      * @param {Event} event - The mouse event
      * @param {number} x - Canvas X position
@@ -109,6 +145,19 @@ export class ContextMenuController {
      * @param {Array} elements - Elements at position from findAllElementsAt
      */
     handleRightClick(event, x, y, elements) {
+        // Check for multi-node selection first
+        const selectedNodes = this.structure.selectedNodes || [];
+        if (selectedNodes.length > 1) {
+            // Check if right-clicking on one of the selected nodes
+            const node = this.structure.findNodeAt(x, y);
+            if (node && selectedNodes.includes(node)) {
+                this.closeAll();
+                this.multiNodePopup.show(selectedNodes, event.clientX, event.clientY);
+                return;
+            }
+        }
+
+        // Fall through to standard element-based menu
         if (elements.length === 0) {
             const menuItems = this.getEmptySpaceMenuItems(x, y);
             this.showContextMenu(event, menuItems);
@@ -282,6 +331,9 @@ export class ContextMenuController {
         if (this.nodePopup?.isOpen()) {
             this.nodePopup.close();
         }
+        if (this.multiNodePopup?.isOpen()) {
+            this.multiNodePopup.close();
+        }
     }
 
     /**
@@ -309,11 +361,19 @@ export class ContextMenuController {
     }
 
     /**
+     * Check if multi-node popup is open.
+     * @returns {boolean}
+     */
+    isMultiNodePopupOpen() {
+        return this.multiNodePopup?.isOpen() ?? false;
+    }
+
+    /**
      * Check if any menu/popup is open.
      * @returns {boolean}
      */
     isAnyOpen() {
-        return this.isContextMenuOpen() || this.isWeightPopupOpen() || this.isNodePopupOpen();
+        return this.isContextMenuOpen() || this.isWeightPopupOpen() || this.isNodePopupOpen() || this.isMultiNodePopupOpen();
     }
 
     /**

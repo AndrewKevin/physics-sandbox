@@ -1261,3 +1261,102 @@ body::after {
 .state-modal-message.error {
     color: var(--accent-1);
 }
+
+/* ==========================================
+   Multi-Select Actions
+   ========================================== */
+
+.multi-select-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.bulk-action-btn {
+    flex: 1;
+    padding: 10px 12px;
+    background: rgba(123, 47, 255, 0.1);
+    border: 2px solid var(--accent-5);
+    border-radius: 8px;
+    color: var(--accent-2);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease-out;
+}
+
+.bulk-action-btn:hover {
+    background: var(--accent-5);
+    color: var(--fg);
+}
+
+.bulk-action-btn.danger {
+    border-color: var(--accent-1);
+    color: var(--accent-1);
+}
+
+.bulk-action-btn.danger:hover {
+    background: var(--accent-1);
+    color: var(--bg);
+}
+
+.bulk-action-btn.small {
+    flex: 0;
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.bulk-mass-control {
+    margin-top: 12px;
+    padding: 10px;
+    background: rgba(13, 13, 26, 0.5);
+    border: 2px solid var(--accent-5);
+    border-radius: 8px;
+}
+
+.bulk-mass-control label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 8px;
+}
+
+.bulk-mass-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bulk-mass-input-row input {
+    flex: 1;
+    padding: 8px 10px;
+    background: rgba(13, 13, 26, 0.8);
+    border: 2px solid var(--accent-5);
+    border-radius: 6px;
+    color: var(--fg);
+    font-family: var(--font-heading);
+    font-size: 14px;
+    font-weight: 700;
+    width: 60px;
+}
+
+.bulk-mass-input-row input:focus {
+    outline: none;
+    border-color: var(--accent-2);
+}
+
+.bulk-mass-input-row span {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 12px;
+}
+
+/* Multi-Node Popup */
+.multi-node-popup .multi-node-info {
+    padding: 8px 12px;
+    background: rgba(13, 13, 26, 0.5);
+    border: 1px solid rgba(0, 245, 212, 0.3);
+    border-radius: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+}

@@ -252,7 +252,8 @@ describe('DragController', () => {
             expect(result).toEqual({
                 isDragging: false,
                 shouldStartDrag: false,
-                clampedPos: null
+                clampedPos: null,
+                isMultiDrag: false
             });
         });
     });
@@ -431,6 +432,159 @@ describe('DragController', () => {
                 node,
                 { x: 780, y: 100 }
             );
+        });
+    });
+});
+
+describe('DragController - Multi-node drag', () => {
+    let controller;
+    let mockCallbacks;
+    let node1, node2, node3;
+
+    beforeEach(() => {
+        node1 = { x: 100, y: 100, selected: true };
+        node2 = { x: 200, y: 100, selected: true };
+        node3 = { x: 150, y: 200, selected: true };
+
+        mockCallbacks = {
+            getBounds: () => ({ width: 800, groundY: 540 }),
+            getNodeRadius: () => 12,
+            getSnapEnabled: () => false,
+            getGridSize: () => 20,
+            getSelectedNodes: () => [node1, node2, node3],
+            onDragStart: vi.fn(),
+            onDragMove: vi.fn(),
+            onMultiDragMove: vi.fn(),
+            onDragEnd: vi.fn(),
+            onMultiDragEnd: vi.fn(),
+            onDragCancel: vi.fn()
+        };
+        controller = new DragController(mockCallbacks);
+    });
+
+    describe('beginPotentialDrag with multi-selection', () => {
+        it('should track all selected nodes when dragging a selected node', () => {
+            controller.beginPotentialDrag(node1, { x: 100, y: 100 });
+
+            expect(controller.draggedNodes).toHaveLength(3);
+            expect(controller.draggedNodes).toContain(node1);
+            expect(controller.draggedNodes).toContain(node2);
+            expect(controller.draggedNodes).toContain(node3);
+        });
+
+        it('should store offsets from mouse position for each node', () => {
+            controller.beginPotentialDrag(node1, { x: 100, y: 100 });
+
+            expect(controller.nodeOffsets.get(node1)).toEqual({ dx: 0, dy: 0 });
+            expect(controller.nodeOffsets.get(node2)).toEqual({ dx: 100, dy: 0 });
+            expect(controller.nodeOffsets.get(node3)).toEqual({ dx: 50, dy: 100 });
+        });
+
+        it('should track single node if dragging unselected node', () => {
+            const unselectedNode = { x: 300, y: 300, selected: false };
+            mockCallbacks.getSelectedNodes = () => [node1, node2]; // unselectedNode not in list
+
+            controller.beginPotentialDrag(unselectedNode, { x: 300, y: 300 });
+
+            expect(controller.draggedNodes).toHaveLength(1);
+            expect(controller.draggedNodes).toContain(unselectedNode);
+        });
+    });
+
+    describe('updateDrag with multi-selection', () => {
+        it('should call onMultiDragMove with positions for all nodes', () => {
+            controller.beginPotentialDrag(node1, { x: 100, y: 100 });
+            controller.updateDrag({ x: 150, y: 150 }); // Move mouse by (50, 50)
+
+            expect(mockCallbacks.onMultiDragMove).toHaveBeenCalled();
+            const positions = mockCallbacks.onMultiDragMove.mock.calls[0][0];
+
+            expect(positions.get(node1)).toEqual({ x: 150, y: 150 });
+            expect(positions.get(node2)).toEqual({ x: 250, y: 150 });
+            expect(positions.get(node3)).toEqual({ x: 200, y: 250 });
+        });
+
+        it('should return isMultiDrag true when multi-dragging', () => {
+            controller.beginPotentialDrag(node1, { x: 100, y: 100 });
+            const result = controller.updateDrag({ x: 150, y: 150 });
+
+            expect(result.isMultiDrag).toBe(true);
+        });
+
+        it('should clamp each node independently to canvas bounds', () => {
+            controller.beginPotentialDrag(node1, { x: 100, y: 100 });
+            // Move far right - node2 should hit the edge
+            controller.updateDrag({ x: 700, y: 100 });
+
+            const positions = mockCallbacks.onMultiDragMove.mock.calls[0][0];
+            // node1 at 700, node2 at 800 but clamped to 788
+            expect(positions.get(node1).x).toBe(700);
+            expect(positions.get(node2).x).toBe(788); // clamped
+        });
+    });
+
+    describe('endDrag with multi-selection', () => {
+        it('should call onMultiDragEnd with all dragged nodes', () => {
+            controller.beginPotentialDrag(node1, { x: 100, y: 100 });
+            controller.updateDrag({ x: 150, y: 150 });
+            const result = controller.endDrag();
+
+            expect(mockCallbacks.onMultiDragEnd).toHaveBeenCalledWith([node1, node2, node3]);
+            expect(result.wasMultiDrag).toBe(true);
+            expect(result.nodes).toHaveLength(3);
+        });
+
+        it('should clear multi-drag state after ending', () => {
+            controller.beginPotentialDrag(node1, { x: 100, y: 100 });
+            controller.updateDrag({ x: 150, y: 150 });
+            controller.endDrag();
+
+            expect(controller.draggedNodes).toHaveLength(0);
+            expect(controller.nodeOffsets.size).toBe(0);
+        });
+    });
+
+    describe('cancelDrag with multi-selection', () => {
+        it('should call onDragCancel for each node with original positions', () => {
+            controller.beginPotentialDrag(node1, { x: 100, y: 100 });
+            controller.updateDrag({ x: 150, y: 150 });
+            controller.cancelDrag();
+
+            expect(mockCallbacks.onDragCancel).toHaveBeenCalledTimes(3);
+            expect(mockCallbacks.onDragCancel).toHaveBeenCalledWith(node1, { x: 100, y: 100 });
+            expect(mockCallbacks.onDragCancel).toHaveBeenCalledWith(node2, { x: 200, y: 100 });
+            expect(mockCallbacks.onDragCancel).toHaveBeenCalledWith(node3, { x: 150, y: 200 });
+        });
+
+        it('should return wasMultiDrag true', () => {
+            controller.beginPotentialDrag(node1, { x: 100, y: 100 });
+            controller.updateDrag({ x: 150, y: 150 });
+            const result = controller.cancelDrag();
+
+            expect(result.wasMultiDrag).toBe(true);
+        });
+    });
+
+    describe('isMultiDrag getter', () => {
+        it('should return false initially', () => {
+            expect(controller.isMultiDrag).toBe(false);
+        });
+
+        it('should return true when multiple nodes are being dragged', () => {
+            controller.beginPotentialDrag(node1, { x: 100, y: 100 });
+
+            expect(controller.isMultiDrag).toBe(true);
+        });
+
+        it('should return false when single node is being dragged', () => {
+            // Create a new controller with only one selected node
+            const singleSelectController = new DragController({
+                ...mockCallbacks,
+                getSelectedNodes: () => [node1]
+            });
+            singleSelectController.beginPotentialDrag(node1, { x: 100, y: 100 });
+
+            expect(singleSelectController.isMultiDrag).toBe(false);
         });
     });
 });

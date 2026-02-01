@@ -389,3 +389,182 @@ describe('StructureManager - serialization with node mass', () => {
         });
     });
 });
+
+describe('StructureManager - Multi-select', () => {
+    let structure;
+
+    beforeEach(() => {
+        structure = new StructureManager();
+        Node.nextId = 0;
+        Segment.nextId = 0;
+        Weight.nextId = 0;
+    });
+
+    describe('addToSelection', () => {
+        it('should add node to selection without clearing existing', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 200);
+            structure.selectNode(node1);
+
+            structure.addToSelection(node2);
+
+            expect(structure.selectedNodes).toContain(node1);
+            expect(structure.selectedNodes).toContain(node2);
+            expect(node2.selected).toBe(true);
+        });
+
+        it('should not duplicate nodes in selection', () => {
+            const node = structure.addNode(100, 100);
+            structure.addToSelection(node);
+            structure.addToSelection(node);
+
+            expect(structure.selectedNodes).toHaveLength(1);
+        });
+
+        it('should clear segment selection when adding nodes', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 200);
+            const segment = structure.addSegment(node1, node2);
+            structure.selectSegment(segment);
+
+            structure.addToSelection(node1);
+
+            expect(structure.selectedSegment).toBeNull();
+            expect(segment.selected).toBe(false);
+        });
+    });
+
+    describe('removeFromSelection', () => {
+        it('should remove node from selection', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 200);
+            structure.selectMultipleNodes([node1, node2]);
+
+            structure.removeFromSelection(node1);
+
+            expect(structure.selectedNodes).not.toContain(node1);
+            expect(structure.selectedNodes).toContain(node2);
+            expect(node1.selected).toBe(false);
+        });
+
+        it('should handle removing node not in selection', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 200);
+            structure.selectNode(node1);
+
+            expect(() => structure.removeFromSelection(node2)).not.toThrow();
+        });
+    });
+
+    describe('toggleNodeSelection', () => {
+        it('should add node when not selected', () => {
+            const node = structure.addNode(100, 100);
+
+            structure.toggleNodeSelection(node);
+
+            expect(structure.selectedNodes).toContain(node);
+        });
+
+        it('should remove node when already selected', () => {
+            const node = structure.addNode(100, 100);
+            structure.selectNode(node);
+
+            structure.toggleNodeSelection(node);
+
+            expect(structure.selectedNodes).not.toContain(node);
+        });
+    });
+
+    describe('selectMultipleNodes', () => {
+        it('should select all provided nodes', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 200);
+            const node3 = structure.addNode(300, 300);
+
+            structure.selectMultipleNodes([node1, node2, node3]);
+
+            expect(structure.selectedNodes).toHaveLength(3);
+            expect(node1.selected).toBe(true);
+            expect(node2.selected).toBe(true);
+            expect(node3.selected).toBe(true);
+        });
+
+        it('should clear previous selection', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 200);
+            structure.selectNode(node1);
+
+            structure.selectMultipleNodes([node2]);
+
+            expect(structure.selectedNodes).not.toContain(node1);
+            expect(node1.selected).toBe(false);
+        });
+    });
+
+    describe('addMultipleToSelection', () => {
+        it('should add nodes to existing selection', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 200);
+            const node3 = structure.addNode(300, 300);
+            structure.selectNode(node1);
+
+            structure.addMultipleToSelection([node2, node3]);
+
+            expect(structure.selectedNodes).toHaveLength(3);
+        });
+    });
+
+    describe('findNodesInRect', () => {
+        it('should find nodes inside rectangle', () => {
+            const node1 = structure.addNode(50, 50);
+            const node2 = structure.addNode(150, 50);
+            const node3 = structure.addNode(100, 150);
+            const node4 = structure.addNode(300, 300);
+
+            const found = structure.findNodesInRect({ x: 0, y: 0, width: 200, height: 200 });
+
+            expect(found).toHaveLength(3);
+            expect(found).toContain(node1);
+            expect(found).toContain(node2);
+            expect(found).toContain(node3);
+            expect(found).not.toContain(node4);
+        });
+
+        it('should return empty array when no nodes in rect', () => {
+            structure.addNode(500, 500);
+
+            const found = structure.findNodesInRect({ x: 0, y: 0, width: 100, height: 100 });
+
+            expect(found).toHaveLength(0);
+        });
+
+        it('should include nodes on boundary', () => {
+            const node = structure.addNode(100, 100);
+
+            const found = structure.findNodesInRect({ x: 0, y: 0, width: 100, height: 100 });
+
+            expect(found).toContain(node);
+        });
+    });
+
+    describe('hasMultipleNodesSelected', () => {
+        it('should return false when no nodes selected', () => {
+            expect(structure.hasMultipleNodesSelected()).toBe(false);
+        });
+
+        it('should return false when one node selected', () => {
+            const node = structure.addNode(100, 100);
+            structure.selectNode(node);
+
+            expect(structure.hasMultipleNodesSelected()).toBe(false);
+        });
+
+        it('should return true when multiple nodes selected', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 200);
+            structure.selectMultipleNodes([node1, node2]);
+
+            expect(structure.hasMultipleNodesSelected()).toBe(true);
+        });
+    });
+});

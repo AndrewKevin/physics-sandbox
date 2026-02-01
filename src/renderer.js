@@ -182,16 +182,30 @@ export class Renderer {
         ctx.globalAlpha = 1;
         ctx.setLineDash([]);
 
-        // Draw selection highlight
+        // Draw selection highlight - prominent outer glow with dashed indicator
         if (segment.selected) {
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = lineWidth + 4;
+            // Outer glow
+            ctx.strokeStyle = '#00F5D4';
+            ctx.lineWidth = lineWidth + 10;
             ctx.globalAlpha = 0.3;
+            ctx.shadowColor = '#00F5D4';
+            ctx.shadowBlur = 20;
             ctx.beginPath();
             ctx.moveTo(posA.x, posA.y);
             ctx.lineTo(posB.x, posB.y);
             ctx.stroke();
+            ctx.shadowBlur = 0;
             ctx.globalAlpha = 1;
+
+            // Dashed selection indicator
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            ctx.moveTo(posA.x, posA.y);
+            ctx.lineTo(posB.x, posB.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
 
         // Draw hover highlight
@@ -255,10 +269,32 @@ export class Renderer {
             fillColor = this.colors.nodeHover;
         }
 
+        // Draw prominent selection ring for selected nodes
+        if (node.selected) {
+            // Outer glow ring
+            ctx.strokeStyle = '#00F5D4';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#00F5D4';
+            ctx.shadowBlur = 20;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, radius + 8, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            // Dashed selection indicator
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, radius + 8, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
         // Draw glow
         if (node.selected || node.hovered || node.fixed) {
             ctx.shadowColor = fillColor;
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = node.selected ? 25 : 15;
         }
 
         // Draw node circle
@@ -300,10 +336,32 @@ export class Renderer {
             fillColor = this.colors.weightHover;
         }
 
+        // Draw prominent selection ring for selected weights
+        if (weight.selected) {
+            // Outer glow ring
+            ctx.strokeStyle = '#00F5D4';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#00F5D4';
+            ctx.shadowBlur = 20;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, radius + 8, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            // Dashed selection indicator
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, radius + 8, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
         // Draw glow (scale with radius)
         if (weight.selected || weight.hovered) {
             ctx.shadowColor = fillColor;
-            ctx.shadowBlur = 10 + radius * 0.5;
+            ctx.shadowBlur = weight.selected ? 20 + radius * 0.5 : 10 + radius * 0.5;
         }
 
         // Draw weight as a filled circle with heavier border
@@ -353,17 +411,27 @@ export class Renderer {
         }
     }
 
-    drawConnectionPreview(startNode, endX, endY) {
+    /**
+     * Draw connection preview line(s) from selected node(s) to cursor.
+     * @param {Node[]} selectedNodes - Array of selected nodes
+     * @param {number} endX - Cursor X position
+     * @param {number} endY - Cursor Y position
+     */
+    drawConnectionPreview(selectedNodes, endX, endY) {
+        if (!selectedNodes || selectedNodes.length === 0) return;
+
         const ctx = this.ctx;
 
         ctx.strokeStyle = 'rgba(0, 245, 212, 0.5)';
         ctx.lineWidth = 3;
         ctx.setLineDash([10, 10]);
 
-        ctx.beginPath();
-        ctx.moveTo(startNode.x, startNode.y);
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
+        for (const node of selectedNodes) {
+            ctx.beginPath();
+            ctx.moveTo(node.x, node.y);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+        }
 
         ctx.setLineDash([]);
     }
@@ -428,13 +496,53 @@ export class Renderer {
         ctx.fillText(text, midX + offsetX, midY + offsetY);
     }
 
+    /**
+     * Draw a selection box (rubber-band rectangle).
+     * @param {Object} rect - { x, y, width, height }
+     * @param {Node[]} nodesInside - Nodes currently inside the box (for preview highlight)
+     */
+    drawSelectionBox(rect, nodesInside = []) {
+        if (!rect) return;
+
+        const ctx = this.ctx;
+
+        // Semi-transparent fill
+        ctx.fillStyle = 'rgba(0, 245, 212, 0.1)';
+        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+
+        // Dashed border with glow
+        ctx.strokeStyle = '#00F5D4';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.shadowColor = '#00F5D4';
+        ctx.shadowBlur = 8;
+
+        ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+        ctx.shadowBlur = 0;
+        ctx.setLineDash([]);
+
+        // Highlight nodes that would be selected (preview)
+        for (const node of nodesInside) {
+            if (!node.selected) {
+                // Draw preview highlight ring for unselected nodes
+                ctx.strokeStyle = 'rgba(0, 245, 212, 0.5)';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, 12 + 4, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+    }
+
     render(structure, state = {}) {
         const {
             simulating = false,
             groundY = this.height - Renderer.DEFAULT_GROUND_OFFSET,
             mouseX = 0,
             mouseY = 0,
-            showStressLabels = false
+            showStressLabels = false,
+            selectionBox = null
         } = state;
 
         this.clear();
@@ -463,10 +571,15 @@ export class Renderer {
             this.drawNode(node, simulating);
         }
 
-        // Draw connection preview when a node is selected
-        const selectedNode = structure.selectedNodes[0];
-        if (!simulating && selectedNode) {
-            this.drawConnectionPreview(selectedNode, mouseX, mouseY);
+        // Draw connection preview from all selected nodes to cursor
+        const selectedNodes = structure.selectedNodes;
+        if (!simulating && selectedNodes.length > 0) {
+            this.drawConnectionPreview(selectedNodes, mouseX, mouseY);
+        }
+
+        // Draw selection box overlay (on top of everything)
+        if (!simulating && selectionBox?.rect) {
+            this.drawSelectionBox(selectionBox.rect, selectionBox.nodesInside || []);
         }
     }
 }
