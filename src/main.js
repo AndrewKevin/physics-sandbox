@@ -4,11 +4,11 @@
  */
 
 import Matter from 'matter-js';
-import VanillaContextMenu from 'vanilla-context-menu';
 import { StructureManager, Node, Weight, MATERIALS } from './structure.js';
 import { Renderer } from './renderer.js';
 import { UIController } from './ui.js';
 import { WeightPopup } from './weight-popup.js';
+import { ContextMenu } from './context-menu.js';
 
 class PhysicsSandbox {
     // Constants
@@ -188,21 +188,9 @@ class PhysicsSandbox {
         // Close all existing menus first
         this.closeAllMenus();
 
-        // Create new context menu with provided items
-        // Use document.body as scope to prevent VanillaContextMenu from
-        // binding its own contextmenu listener to the canvas (which would
-        // cause it to show stale menus on subsequent right-clicks)
-        this.contextMenu = new VanillaContextMenu({
-            scope: document.body,
-            customThemeClass: 'physics-context-menu',
-            customClass: 'physics-context-menu',
-            transitionDuration: 100,
-            menuItems: menuItems,
-            preventCloseOnClick: false
-        });
-
-        // Show the menu at the event position
-        this.contextMenu.show(event);
+        // Show context menu at click position
+        this.contextMenu = new ContextMenu();
+        this.contextMenu.show(event.clientX, event.clientY, menuItems);
     }
 
     /**
@@ -710,7 +698,6 @@ class PhysicsSandbox {
     closeAllMenus() {
         if (this.contextMenu) {
             this.contextMenu.close();
-            this.contextMenu.off();  // Remove event listeners after closing
             this.contextMenu = null;
         }
         if (this.weightPopup?.isOpen()) {
@@ -784,6 +771,9 @@ class PhysicsSandbox {
     }
 
     handleDelete(x, y) {
+        // Note: updateStats() is called by onClick() after this method returns,
+        // so we don't need to call it here.
+
         // Try to delete weight first (smallest, highest priority)
         const weight = this.structure.findWeightAt(x, y);
         if (weight) {
@@ -793,7 +783,6 @@ class PhysicsSandbox {
             }
             this.structure.removeWeight(weight);
             this.ui.updateSelection({});
-            this.updateStats();
             return;
         }
 
@@ -822,7 +811,6 @@ class PhysicsSandbox {
             }
             this.structure.removeSegment(segment);
             this.ui.updateSelection({});
-            this.updateStats();
         }
     }
 
