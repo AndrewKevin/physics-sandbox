@@ -1,0 +1,243 @@
+/**
+ * Input Controller - Handles all input events (mouse, touch, keyboard)
+ * Converts coordinates and delegates to callbacks for high-level actions.
+ */
+
+import { DragController } from './drag-controller.js';
+
+export class InputController {
+    /**
+     * @param {HTMLCanvasElement} canvas - The canvas element to bind events to
+     * @param {Object} options - Callback options
+     * @param {Function} options.isSimulating - Returns true if simulation is running
+     * @param {Function} options.findNodeAt - (x, y) => Node|null
+     * @param {Function} options.findElementAt - (x, y) => {type, element}|null
+     * @param {Function} options.getDrag - () => DragController
+     * @param {Function} options.getHover - () => HoverController
+     * @param {Function} options.onMousePosChange - (x, y) => void
+     * @param {Function} options.onClick - (x, y) => void
+     * @param {Function} options.onRightClick - (e, x, y) => void
+     * @param {Function} options.onEscape - () => void
+     * @param {Function} options.onDelete - () => void
+     * @param {Function} options.onWindowResize - () => void
+     */
+    constructor(canvas, options) {
+        this.canvas = canvas;
+        this.options = options;
+
+        // Touch state
+        this.touchStartPos = null;
+
+        this.bindEvents();
+    }
+
+    /**
+     * Bind all input events to the canvas and window.
+     */
+    bindEvents() {
+        // Mouse events on canvas
+        this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
+        this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
+        this.canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
+        this.canvas.addEventListener('click', (e) => this.onClick(e));
+        this.canvas.addEventListener('contextmenu', (e) => this.onRightClick(e));
+
+        // Touch events for mobile
+        this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
+        this.canvas.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
+        this.canvas.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false });
+
+        // Keyboard events
+        window.addEventListener('keydown', (e) => this.onKeyDown(e));
+
+        // Window resize
+        window.addEventListener('resize', () => this.options.onWindowResize?.());
+    }
+
+    /**
+     * Convert mouse event to canvas coordinates.
+     */
+    getMousePos(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        };
+    }
+
+    /**
+     * Convert touch to canvas coordinates.
+     */
+    getTouchPos(touch) {
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: touch.clientX - rect.left,
+            y: touch.clientY - rect.top
+        };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Mouse handlers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    onMouseDown(e) {
+        if (this.options.isSimulating() || e.button !== 0) return;
+
+        const pos = this.getMousePos(e);
+        const node = this.options.findNodeAt(pos.x, pos.y);
+        const drag = this.options.getDrag();
+
+        if (node) {
+            drag.beginPotentialDrag(node, pos);
+        }
+    }
+
+    onMouseUp(e) {
+        if (e.button !== 0) return;
+        this.options.getDrag().endDrag();
+    }
+
+    onMouseMove(e) {
+        const pos = this.getMousePos(e);
+        this.options.onMousePosChange(pos.x, pos.y);
+
+        const drag = this.options.getDrag();
+        const hover = this.options.getHover();
+
+        // Handle dragging
+        if (!this.options.isSimulating() && drag.isTracking) {
+            const result = drag.updateDrag(pos);
+            if (result.isDragging) {
+                this.canvas.style.cursor = 'grabbing';
+                return;
+            }
+        }
+
+        // Update hover states and cursor
+        if (!this.options.isSimulating()) {
+            hover.clear();
+            hover.update(this.options.findElementAt(pos.x, pos.y));
+        } else {
+            this.canvas.style.cursor = 'default';
+        }
+    }
+
+    onClick(e) {
+        if (this.options.isSimulating()) return;
+
+        const drag = this.options.getDrag();
+
+        // Skip click if we just finished dragging
+        if (drag.shouldSuppressClick) {
+            drag.clearClickSuppression();
+            return;
+        }
+
+        const pos = this.getMousePos(e);
+        this.options.onClick(pos.x, pos.y);
+    }
+
+    onRightClick(e) {
+        // Always prevent default browser context menu
+        e.preventDefault();
+
+        if (this.options.isSimulating()) return;
+
+        const pos = this.getMousePos(e);
+        this.options.onRightClick(e, pos.x, pos.y);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Touch handlers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    onTouchStart(e) {
+        if (e.touches.length !== 1) return;
+
+        e.preventDefault();
+        const pos = this.getTouchPos(e.touches[0]);
+        this.options.onMousePosChange(pos.x, pos.y);
+        this.touchStartPos = pos;
+
+        // Check if touching a node for potential drag
+        if (!this.options.isSimulating()) {
+            const node = this.options.findNodeAt(pos.x, pos.y);
+            if (node) {
+                this.options.getDrag().beginPotentialDrag(node, pos);
+            }
+        }
+    }
+
+    onTouchMove(e) {
+        if (e.touches.length !== 1) return;
+
+        e.preventDefault();
+        const pos = this.getTouchPos(e.touches[0]);
+        this.options.onMousePosChange(pos.x, pos.y);
+
+        const drag = this.options.getDrag();
+        const hover = this.options.getHover();
+
+        // Handle dragging
+        if (!this.options.isSimulating() && drag.isTracking) {
+            const result = drag.updateDrag(pos);
+            if (result.isDragging) {
+                return;
+            }
+        }
+
+        // Update hover states for visual feedback
+        if (!this.options.isSimulating()) {
+            hover.clear();
+            hover.update(this.options.findElementAt(pos.x, pos.y));
+        }
+    }
+
+    onTouchEnd(e) {
+        if (!this.touchStartPos || e.changedTouches.length !== 1) return;
+
+        e.preventDefault();
+        const pos = this.getTouchPos(e.changedTouches[0]);
+        const drag = this.options.getDrag();
+
+        const { wasDrag } = drag.endDrag();
+
+        if (!wasDrag) {
+            // Only trigger click if finger didn't move much (tap vs drag)
+            const dx = pos.x - this.touchStartPos.x;
+            const dy = pos.y - this.touchStartPos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < DragController.TAP_THRESHOLD) {
+                // Simulate click at touch position
+                drag.clearClickSuppression();
+                this.options.onClick(pos.x, pos.y);
+            }
+        }
+
+        this.touchStartPos = null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Keyboard handler
+    // ─────────────────────────────────────────────────────────────────────────
+
+    onKeyDown(e) {
+        if (e.key === 'Escape') {
+            this.options.onEscape();
+            return;
+        }
+
+        if ((e.key === 'Delete' || e.key === 'Backspace') && !this.options.isSimulating()) {
+            // Don't handle if typing in an input element
+            const tagName = e.target.tagName;
+            if (tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA') return;
+
+            // Don't delete during drag
+            if (this.options.getDrag().isActive) return;
+
+            e.preventDefault();
+            this.options.onDelete();
+        }
+    }
+}

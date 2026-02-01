@@ -11,6 +11,7 @@ import { DragController } from './drag-controller.js';
 import { HoverController } from './hover-controller.js';
 import { PhysicsController } from './physics-controller.js';
 import { ContextMenuController } from './context-menu-controller.js';
+import { InputController } from './input-controller.js';
 import { StateModal } from './state-modal.js';
 
 class PhysicsSandbox {
@@ -66,7 +67,7 @@ class PhysicsSandbox {
         this.initPhysics();
         this.initUI();
         this.initContextMenu();
-        this.initEvents();
+        this.initInput();
 
         // Start render loop
         this.animate();
@@ -166,92 +167,65 @@ class PhysicsSandbox {
         });
     }
 
-    initEvents() {
-        // Mouse events on canvas
-        this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
-        this.canvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        this.canvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
-        this.canvas.addEventListener('click', (e) => this.onClick(e));
-        this.canvas.addEventListener('contextmenu', (e) => {
-            // Don't prevent default yet - let onRightClick decide
-            this.onRightClick(e);
-        });
-
-        // Touch events for mobile
-        this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
-        this.canvas.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
-        this.canvas.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false });
-
-        // Keyboard events
-        window.addEventListener('keydown', (e) => this.onKeyDown(e));
-
-        // Window resize
-        window.addEventListener('resize', () => {
-            this.groundY = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
-
-            // Update ground body position during simulation
-            if (this.isSimulating) {
-                this.physics.updateGroundPosition({
-                    width: this.renderer.width,
-                    groundY: this.groundY,
-                    groundOffset: PhysicsSandbox.GROUND_OFFSET
-                });
+    initInput() {
+        this.input = new InputController(this.canvas, {
+            isSimulating: () => this.isSimulating,
+            findNodeAt: (x, y) => this.structure.findNodeAt(x, y),
+            findElementAt: (x, y) => this.findElementAt(x, y),
+            getDrag: () => this.drag,
+            getHover: () => this.hover,
+            onMousePosChange: (x, y) => {
+                this.mouseX = x;
+                this.mouseY = y;
+            },
+            onClick: (x, y) => {
+                this.handleClick(x, y);
+                this.updateStats();
+            },
+            onRightClick: (e, x, y) => {
+                const elements = this.findAllElementsAt(x, y);
+                this.menus.handleRightClick(e, x, y, elements);
+            },
+            onEscape: () => this.handleEscape(),
+            onDelete: () => this.deleteSelectedElement(),
+            onWindowResize: () => {
+                this.groundY = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
+                if (this.isSimulating) {
+                    this.physics.updateGroundPosition({
+                        width: this.renderer.width,
+                        groundY: this.groundY,
+                        groundOffset: PhysicsSandbox.GROUND_OFFSET
+                    });
+                }
             }
         });
     }
 
-    getMousePos(e) {
-        const rect = this.canvas.getBoundingClientRect();
-        return {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
-        };
-    }
-
-    getTouchPos(touch) {
-        const rect = this.canvas.getBoundingClientRect();
-        return {
-            x: touch.clientX - rect.left,
-            y: touch.clientY - rect.top
-        };
-    }
-
-    onKeyDown(e) {
-        // ESC key priority: 1) close state modal, 2) close menus, 3) cancel drag, 4) clear selection
-        if (e.key === 'Escape') {
-            // First, close state modal if open
-            if (this.stateModal.isOpen()) {
-                this.stateModal.close();
-                return;
-            }
-
-            // Second, close any open menus/popups
-            if (this.menus.isAnyOpen()) {
-                this.closeAllMenus();
-                return;
-            }
-
-            // Third, cancel drag and restore node position
-            if (this.drag.isActive) {
-                this.drag.cancelDrag();
-                return;
-            }
-
-            // Finally, clear selection
-            this.structure.clearSelection();
-            this.ui.updateSelection({});
+    /**
+     * Handle Escape key - closes modals/menus, cancels drag, or clears selection.
+     */
+    handleEscape() {
+        // First, close state modal if open
+        if (this.stateModal.isOpen()) {
+            this.stateModal.close();
             return;
         }
 
-        // Delete selected element on Delete/Backspace
-        if ((e.key === 'Delete' || e.key === 'Backspace') && !this.isSimulating && !this.drag.isActive) {
-            // Don't handle if typing in an input element
-            const tagName = e.target.tagName;
-            if (tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA') return;
-
-            e.preventDefault();
-            this.deleteSelectedElement();
+        // Second, close any open menus/popups
+        if (this.menus.isAnyOpen()) {
+            this.closeAllMenus();
+            return;
         }
+
+        // Third, cancel drag and restore node position
+        if (this.drag.isActive) {
+            this.drag.cancelDrag();
+            return;
+        }
+
+        // Finally, clear selection
+        this.structure.clearSelection();
+        this.ui.updateSelection({});
     }
 
     /**
@@ -268,6 +242,7 @@ class PhysicsSandbox {
                 this.closeAllMenus();
             }
             this.structure.removeWeight(selectedWeight);
+            this.structure.clearSelection();
             this.ui.updateSelection({});
             this.updateStats();
         } else if (selectedNode) {
@@ -276,6 +251,7 @@ class PhysicsSandbox {
                 this.closeAllMenus();
             }
             this.structure.removeNode(selectedNode);
+            this.structure.clearSelection();
             this.ui.updateSelection({});
             this.updateStats();
         } else if (selectedSegment) {
@@ -284,127 +260,10 @@ class PhysicsSandbox {
                 this.closeAllMenus();
             }
             this.structure.removeSegment(selectedSegment);
+            this.structure.clearSelection();
             this.ui.updateSelection({});
             this.updateStats();
         }
-    }
-
-    onTouchStart(e) {
-        if (e.touches.length === 1) {
-            e.preventDefault();
-            const pos = this.getTouchPos(e.touches[0]);
-            this.mouseX = pos.x;
-            this.mouseY = pos.y;
-            this.touchStartPos = pos;
-
-            // Check if touching a node for potential drag
-            if (!this.isSimulating) {
-                const node = this.structure.findNodeAt(pos.x, pos.y);
-                if (node) {
-                    this.drag.beginPotentialDrag(node, pos);
-                }
-            }
-        }
-    }
-
-    onTouchMove(e) {
-        if (e.touches.length === 1) {
-            e.preventDefault();
-            const pos = this.getTouchPos(e.touches[0]);
-            this.mouseX = pos.x;
-            this.mouseY = pos.y;
-
-            // Handle dragging
-            if (!this.isSimulating && this.drag.isTracking) {
-                const result = this.drag.updateDrag(pos);
-                if (result.isDragging) {
-                    return;
-                }
-            }
-
-            // Update hover states for visual feedback
-            if (!this.isSimulating) {
-                this.hover.clear();
-                this.hover.update(this.findElementAt(pos.x, pos.y));
-            }
-        }
-    }
-
-    onTouchEnd(e) {
-        if (this.touchStartPos && e.changedTouches.length === 1) {
-            e.preventDefault();
-            const pos = this.getTouchPos(e.changedTouches[0]);
-
-            const { wasDrag } = this.drag.endDrag();
-
-            if (!wasDrag) {
-                // Only trigger click if finger didn't move much (tap vs drag)
-                const dx = pos.x - this.touchStartPos.x;
-                const dy = pos.y - this.touchStartPos.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < DragController.TAP_THRESHOLD) {
-                    // Simulate click at touch position (skip wasJustDragging check as we handle it here)
-                    this.drag.clearClickSuppression();
-                    this.onClick({ clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY });
-                }
-            }
-        }
-        this.touchStartPos = null;
-    }
-
-    onMouseDown(e) {
-        if (this.isSimulating || e.button !== 0) return;
-
-        const pos = this.getMousePos(e);
-        const node = this.structure.findNodeAt(pos.x, pos.y);
-
-        if (node) {
-            this.drag.beginPotentialDrag(node, pos);
-        }
-    }
-
-    onMouseUp(e) {
-        if (e.button !== 0) return;
-        this.drag.endDrag();
-    }
-
-    onMouseMove(e) {
-        const pos = this.getMousePos(e);
-        this.mouseX = pos.x;
-        this.mouseY = pos.y;
-
-        // Handle dragging
-        if (!this.isSimulating && this.drag.isTracking) {
-            const result = this.drag.updateDrag(pos);
-            if (result.isDragging) {
-                this.canvas.style.cursor = 'grabbing';
-                return;
-            }
-        }
-
-        // Update hover states and cursor
-        if (!this.isSimulating) {
-            this.hover.clear();
-            this.hover.update(this.findElementAt(pos.x, pos.y));
-        } else {
-            this.canvas.style.cursor = 'default';
-        }
-    }
-
-
-    onClick(e) {
-        if (this.isSimulating) return;
-
-        // Skip click if we just finished dragging
-        if (this.drag.shouldSuppressClick) {
-            this.drag.clearClickSuppression();
-            return;
-        }
-
-        const pos = this.getMousePos(e);
-        this.handleClick(pos.x, pos.y);
-        this.updateStats();
     }
 
     /**
@@ -500,17 +359,6 @@ class PhysicsSandbox {
             this.structure.clearSelection();
             this.ui.updateSelection({});
         }
-    }
-
-    onRightClick(e) {
-        // Always prevent default browser context menu
-        e.preventDefault();
-
-        if (this.isSimulating) return;
-
-        const pos = this.getMousePos(e);
-        const elements = this.findAllElementsAt(pos.x, pos.y);
-        this.menus.handleRightClick(e, pos.x, pos.y, elements);
     }
 
     /**
