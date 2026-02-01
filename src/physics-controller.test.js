@@ -274,6 +274,26 @@ describe('PhysicsController', () => {
             expect(body.position.x).toBe(150);
             expect(body.position.y).toBe(250);
         });
+
+        it('should use node mass for body mass', () => {
+            controller.init();
+            const node = { x: 100, y: 200, fixed: false, mass: 15 };
+            const body = controller.createNodeBody(node);
+
+            expect(body.mass).toBe(15);
+        });
+
+        it('should handle different mass values', () => {
+            controller.init();
+            const lightNode = { x: 100, y: 100, fixed: false, mass: 1 };
+            const heavyNode = { x: 200, y: 200, fixed: false, mass: 50 };
+
+            const lightBody = controller.createNodeBody(lightNode);
+            const heavyBody = controller.createNodeBody(heavyNode);
+
+            expect(lightBody.mass).toBe(1);
+            expect(heavyBody.mass).toBe(50);
+        });
     });
 
     describe('createSegmentConstraint', () => {

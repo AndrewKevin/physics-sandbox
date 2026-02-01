@@ -2,6 +2,8 @@
  * Structure Manager - Nodes, Segments, and Materials
  */
 
+import Matter from 'matter-js';
+
 // Stress colours (must match CSS variables in styles.css)
 export const STRESS_COLORS = {
     low: '#4ADE80',       // Green - healthy
@@ -45,6 +47,7 @@ export class Node {
         this.x = x;
         this.y = y;
         this.fixed = false;
+        this.mass = Node.defaultMass;
         this.body = null;  // Matter.js body reference
         this.selected = false;
         this.hovered = false;
@@ -52,11 +55,21 @@ export class Node {
 
     static nextId = 0;
     static radius = 12;
+    static minMass = 0.1;
+    static maxMass = 50;
+    static defaultMass = 5;
 
     setFixed(fixed) {
         this.fixed = fixed;
         if (this.body) {
             this.body.isStatic = fixed;
+        }
+    }
+
+    setMass(mass) {
+        this.mass = Math.max(Node.minMass, Math.min(Node.maxMass, mass));
+        if (this.body) {
+            Matter.Body.setMass(this.body, this.mass);
         }
     }
 
@@ -526,7 +539,8 @@ export class StructureManager {
             nodes: this.nodes.map(node => ({
                 x: node.x,
                 y: node.y,
-                fixed: node.fixed
+                fixed: node.fixed,
+                mass: node.mass
             })),
             segments: this.segments.map(segment => ({
                 nodeAIndex: nodeIndexMap.get(segment.nodeA),
@@ -558,6 +572,7 @@ export class StructureManager {
         for (const nodeData of data.nodes) {
             const node = this.addNode(nodeData.x, nodeData.y);
             node.fixed = nodeData.fixed;
+            node.mass = nodeData.mass ?? Node.defaultMass;
         }
 
         // Restore segments (referencing restored nodes by index)

@@ -5,6 +5,7 @@
 
 import { ContextMenu } from './context-menu.js';
 import { WeightPopup } from './weight-popup.js';
+import { NodePopup } from './node-popup.js';
 import { getPositionOnSegment, snapToGrid, clampToCanvas } from './position-utils.js';
 
 export class ContextMenuController {
@@ -29,8 +30,10 @@ export class ContextMenuController {
 
         this.contextMenu = null;
         this.weightPopup = new WeightPopup();
+        this.nodePopup = new NodePopup();
 
         this.setupWeightPopupCallbacks();
+        this.setupNodePopupCallbacks();
     }
 
     /**
@@ -50,6 +53,7 @@ export class ContextMenuController {
             const weight = this.structure.selectedWeight;
             if (weight) {
                 this.ui.updateSelection({ weight });
+                this.onStatsUpdate();
             }
         };
 
@@ -57,10 +61,42 @@ export class ContextMenuController {
             const weight = this.structure.selectedWeight;
             if (weight) {
                 this.ui.updateSelection({ weight });
+                this.onStatsUpdate();
             }
         };
 
         this.weightPopup.onClose = () => {
+            // Optionally handle popup close
+        };
+    }
+
+    /**
+     * Set up callbacks for the node popup.
+     */
+    setupNodePopupCallbacks() {
+        this.nodePopup.onDelete = (node) => {
+            if (this.structure.nodes.includes(node)) {
+                this.structure.removeNode(node);
+                this.structure.clearSelection();
+                this.ui.updateSelection({});
+                this.onStatsUpdate();
+            }
+        };
+
+        this.nodePopup.onPinToggle = (node) => {
+            if (this.structure.nodes.includes(node)) {
+                node.setFixed(!node.fixed);
+                this.onStatsUpdate();
+            }
+        };
+
+        this.nodePopup.onMassChange = () => {
+            // Mass change is reflected in real-time via the node's mass property
+            // If simulation is running, physics body mass is updated via setMass
+            this.onStatsUpdate();
+        };
+
+        this.nodePopup.onClose = () => {
             // Optionally handle popup close
         };
     }
@@ -108,41 +144,14 @@ export class ContextMenuController {
             this.ui.updateSelection({ weight: item.element });
             this.weightPopup.show(item.element, event.clientX, event.clientY);
         } else if (item.type === 'node') {
-            const menuItems = this.getNodeMenuItems(item.element);
-            this.showContextMenu(event, menuItems);
+            this.closeAll();
+            this.structure.selectNode(item.element);
+            this.ui.updateSelection({ node: item.element });
+            this.nodePopup.show(item.element, event.clientX, event.clientY);
         } else if (item.type === 'segment') {
             const menuItems = this.getSegmentMenuItems(item.element, pos.x, pos.y);
             this.showContextMenu(event, menuItems);
         }
-    }
-
-    /**
-     * Generate menu items for a node.
-     * @param {Object} node - The node
-     * @returns {Array} Menu items
-     */
-    getNodeMenuItems(node) {
-        return [
-            {
-                label: `⚓  ${node.fixed ? 'Unpin' : 'Pin'} Node`,
-                callback: () => {
-                    if (this.structure.nodes.includes(node)) {
-                        node.setFixed(!node.fixed);
-                    }
-                }
-            },
-            {
-                label: '✕  Delete Node',
-                callback: () => {
-                    if (this.structure.nodes.includes(node)) {
-                        this.structure.removeNode(node);
-                        this.structure.clearSelection();
-                        this.ui.updateSelection({});
-                        this.onStatsUpdate();
-                    }
-                }
-            }
-        ];
     }
 
     /**
@@ -270,6 +279,9 @@ export class ContextMenuController {
         if (this.weightPopup?.isOpen()) {
             this.weightPopup.close();
         }
+        if (this.nodePopup?.isOpen()) {
+            this.nodePopup.close();
+        }
     }
 
     /**
@@ -289,11 +301,19 @@ export class ContextMenuController {
     }
 
     /**
+     * Check if node popup is open.
+     * @returns {boolean}
+     */
+    isNodePopupOpen() {
+        return this.nodePopup?.isOpen() ?? false;
+    }
+
+    /**
      * Check if any menu/popup is open.
      * @returns {boolean}
      */
     isAnyOpen() {
-        return this.isContextMenuOpen() || this.isWeightPopupOpen();
+        return this.isContextMenuOpen() || this.isWeightPopupOpen() || this.isNodePopupOpen();
     }
 
     /**
@@ -302,5 +322,13 @@ export class ContextMenuController {
      */
     get popupWeight() {
         return this.weightPopup?.weight ?? null;
+    }
+
+    /**
+     * Get the node currently shown in popup (if any).
+     * @returns {Object|null}
+     */
+    get popupNode() {
+        return this.nodePopup?.node ?? null;
     }
 }

@@ -205,7 +205,7 @@ export class PhysicsController {
         const radius = this.getNodeRadius();
         return Matter.Bodies.circle(node.x, node.y, radius, {
             isStatic: node.fixed,
-            mass: 5,
+            mass: node.mass,
             restitution: 0.2,
             friction: 0.8,
             frictionStatic: 1.0,

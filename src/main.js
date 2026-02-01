@@ -13,6 +13,15 @@ import { PhysicsController } from './physics-controller.js';
 import { ContextMenuController } from './context-menu-controller.js';
 import { InputController } from './input-controller.js';
 import { StateModal } from './state-modal.js';
+import {
+    saveViewSettings,
+    loadViewSettings,
+    saveStructure,
+    loadStructure,
+    clearStorage,
+    createDebouncedSave,
+    isStorageAvailable
+} from './storage-utils.js';
 
 class PhysicsSandbox {
     // Constants
@@ -51,6 +60,7 @@ class PhysicsSandbox {
                         segment.restLength = segment.calculateLength();
                     }
                 }
+                this.markStructureDirty();
             },
             onDragCancel: (node, originalPos) => {
                 node.updatePosition(originalPos.x, originalPos.y);
@@ -70,6 +80,7 @@ class PhysicsSandbox {
         this.initUI();
         this.initContextMenu();
         this.initInput();
+        this.initStorage();
 
         // Start render loop
         this.animate();
@@ -115,6 +126,7 @@ class PhysicsSandbox {
                 seg.compressionOnly = compression;
                 if (compression) seg.tensionOnly = false;
                 this.ui.updateSelection({ segment: seg });
+                this.markStructureDirty();
             }
         });
 
@@ -124,6 +136,7 @@ class PhysicsSandbox {
                 seg.tensionOnly = tension;
                 if (tension) seg.compressionOnly = false;
                 this.ui.updateSelection({ segment: seg });
+                this.markStructureDirty();
             }
         });
 
@@ -137,6 +150,7 @@ class PhysicsSandbox {
                 seg.tensionOnly = MATERIALS[material].tensionOnly;
                 seg.compressionOnly = MATERIALS[material].compressionOnly;
                 this.ui.updateSelection({ segment: seg });
+                this.markStructureDirty();
             }
         });
 
@@ -144,6 +158,7 @@ class PhysicsSandbox {
             const seg = this.structure.selectedSegment;
             if (seg) {
                 seg.stiffness = stiffness;
+                this.markStructureDirty();
             }
         });
 
@@ -151,6 +166,7 @@ class PhysicsSandbox {
             const seg = this.structure.selectedSegment;
             if (seg) {
                 seg.damping = damping;
+                this.markStructureDirty();
             }
         });
 
@@ -167,7 +183,10 @@ class PhysicsSandbox {
             getCanvasWidth: () => this.renderer.width,
             getNodeRadius: () => Node.radius,
             getGridSize: () => Renderer.GRID_SIZE,
-            onStatsUpdate: () => this.updateStats()
+            onStatsUpdate: () => {
+                this.updateStats();
+                this.markStructureDirty();
+            }
         });
     }
 
@@ -203,6 +222,51 @@ class PhysicsSandbox {
                 }
             }
         });
+    }
+
+    initStorage() {
+        if (!isStorageAvailable()) {
+            console.warn('localStorage not available - persistence disabled');
+            return;
+        }
+
+        // Load saved state on startup
+        this.loadFromStorage();
+
+        // Set up auto-save for view settings (immediate on change)
+        this.ui.setViewSettingsCallback(() => {
+            saveViewSettings(localStorage, this.ui.getViewSettings());
+        });
+
+        // Set up debounced auto-save for structure (1s delay)
+        this.debouncedStructureSave = createDebouncedSave(() => {
+            if (!this.isSimulating) {
+                saveStructure(localStorage, this.structure.serialize());
+            }
+        }, 1000);
+    }
+
+    loadFromStorage() {
+        // Load view settings
+        const viewSettings = loadViewSettings(localStorage);
+        if (viewSettings) {
+            this.ui.applyViewSettings(viewSettings);
+            this.material = viewSettings.currentMaterial;
+        }
+
+        // Load structure
+        const structureData = loadStructure(localStorage);
+        if (structureData) {
+            this.structure.deserialize(structureData);
+            this.updateStats();
+        }
+    }
+
+    /**
+     * Mark structure as dirty to trigger debounced auto-save.
+     */
+    markStructureDirty() {
+        this.debouncedStructureSave?.();
     }
 
     /**
@@ -249,15 +313,19 @@ class PhysicsSandbox {
             this.structure.clearSelection();
             this.ui.updateSelection({});
             this.updateStats();
+            this.markStructureDirty();
         } else if (selectedNode) {
-            // Close popup if it's showing a weight attached to this node
-            if (this.menus.isWeightPopupOpen() && this.menus.popupWeight?.isAttachedTo(selectedNode)) {
+            // Close popup if it's showing this node or a weight attached to this node
+            if (this.menus.isNodePopupOpen() && this.menus.popupNode === selectedNode) {
+                this.closeAllMenus();
+            } else if (this.menus.isWeightPopupOpen() && this.menus.popupWeight?.isAttachedTo(selectedNode)) {
                 this.closeAllMenus();
             }
             this.structure.removeNode(selectedNode);
             this.structure.clearSelection();
             this.ui.updateSelection({});
             this.updateStats();
+            this.markStructureDirty();
         } else if (selectedSegment) {
             // Close popup if it's showing a weight attached to this segment
             if (this.menus.isWeightPopupOpen() && this.menus.popupWeight?.isAttachedTo(selectedSegment)) {
@@ -267,6 +335,7 @@ class PhysicsSandbox {
             this.structure.clearSelection();
             this.ui.updateSelection({});
             this.updateStats();
+            this.markStructureDirty();
         }
     }
 
@@ -321,6 +390,7 @@ class PhysicsSandbox {
         // Create segment if another node is selected
         if (currentlySelectedNode) {
             this.structure.addSegment(currentlySelectedNode, node, this.material);
+            this.markStructureDirty();
         }
 
         // Always select the clicked node to enable chaining
@@ -361,6 +431,7 @@ class PhysicsSandbox {
 
             const newNode = this.structure.addNode(pos.x, pos.y);
             this.structure.addSegment(currentlySelectedNode, newNode, this.material);
+            this.markStructureDirty();
 
             // Select new node to continue chaining
             this.structure.selectNode(newNode);
@@ -476,6 +547,12 @@ class PhysicsSandbox {
         this.preSimulationSnapshot = null;
         this.ui.updateSelection({});
         this.updateStats();
+
+        // Cancel any pending debounced save before clearing storage
+        this.debouncedStructureSave?.cancel();
+
+        // Clear localStorage so next visit starts fresh
+        clearStorage(localStorage);
     }
 
     /**
@@ -508,6 +585,7 @@ class PhysicsSandbox {
             this.drag.reset();
             this.ui.updateSelection({});
             this.updateStats();
+            this.markStructureDirty();
         });
     }
 

@@ -107,7 +107,14 @@ export class UIController {
             this.onSegmentTensionChange?.(e.target.checked);
         });
 
-        // View options (no callback needed - state read directly via getter)
+        // View options - notify on change for persistence
+        this.elements.viewSnapToGrid?.addEventListener('change', () => {
+            this.onViewSettingsChange?.();
+        });
+
+        this.elements.viewStressLabels?.addEventListener('change', () => {
+            this.onViewSettingsChange?.();
+        });
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -141,6 +148,7 @@ export class UIController {
         });
 
         this.onMaterialChange(material);
+        this.onViewSettingsChange?.();
     }
 
     toggleSimulation() {
@@ -300,5 +308,48 @@ export class UIController {
 
     get snapToGrid() {
         return this.elements.viewSnapToGrid?.checked ?? false;
+    }
+
+    /**
+     * Get current view settings for persistence.
+     * @returns {Object} View settings { currentMaterial, snapToGrid, showStressLabels }
+     */
+    getViewSettings() {
+        return {
+            currentMaterial: this.currentMaterial,
+            snapToGrid: this.snapToGrid,
+            showStressLabels: this.showStressLabels
+        };
+    }
+
+    /**
+     * Apply loaded view settings.
+     * @param {Object} settings - Settings { currentMaterial, snapToGrid, showStressLabels }
+     */
+    applyViewSettings(settings) {
+        if (settings.currentMaterial) {
+            // Update material without triggering onViewSettingsChange (we're loading, not changing)
+            this.currentMaterial = settings.currentMaterial;
+            this.elements.materialButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.material === settings.currentMaterial);
+            });
+            this.onMaterialChange(settings.currentMaterial);
+        }
+
+        if (this.elements.viewSnapToGrid) {
+            this.elements.viewSnapToGrid.checked = settings.snapToGrid ?? false;
+        }
+
+        if (this.elements.viewStressLabels) {
+            this.elements.viewStressLabels.checked = settings.showStressLabels ?? false;
+        }
+    }
+
+    /**
+     * Set callback for view settings changes (for persistence).
+     * @param {Function} callback - Called when any view setting changes
+     */
+    setViewSettingsCallback(callback) {
+        this.onViewSettingsChange = callback;
     }
 }

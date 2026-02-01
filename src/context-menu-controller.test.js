@@ -69,54 +69,44 @@ describe('ContextMenuController - User Intent', () => {
         });
     });
 
-    describe('User right-clicks on a node', () => {
-        it('should show Pin option for unfixed node', () => {
-            const node = { id: 1, fixed: false, setFixed: vi.fn() };
-            mockStructure.nodes = [node];
-
-            const items = controller.getNodeMenuItems(node);
-
-            expect(items[0].label).toContain('Pin');
-        });
-
-        it('should show Unpin option for fixed node', () => {
-            const node = { id: 1, fixed: true, setFixed: vi.fn() };
-            mockStructure.nodes = [node];
-
-            const items = controller.getNodeMenuItems(node);
-
-            expect(items[0].label).toContain('Unpin');
-        });
-
-        it('should show Delete option', () => {
-            const node = { id: 1, fixed: false, setFixed: vi.fn() };
-
-            const items = controller.getNodeMenuItems(node);
-
-            expect(items[1].label).toContain('Delete');
-        });
-
+    describe('User interacts with node via popup', () => {
         it('clicking Pin should toggle fixed state', () => {
             const node = { id: 1, fixed: false, setFixed: vi.fn() };
             mockStructure.nodes = [node];
 
-            const items = controller.getNodeMenuItems(node);
-            items[0].callback();
+            controller.nodePopup.onPinToggle(node);
 
             expect(node.setFixed).toHaveBeenCalledWith(true);
+        });
+
+        it('clicking Unpin should toggle fixed state off', () => {
+            const node = { id: 1, fixed: true, setFixed: vi.fn() };
+            mockStructure.nodes = [node];
+
+            controller.nodePopup.onPinToggle(node);
+
+            expect(node.setFixed).toHaveBeenCalledWith(false);
         });
 
         it('clicking Delete should remove node and clear selection', () => {
             const node = { id: 1, fixed: false, setFixed: vi.fn() };
             mockStructure.nodes = [node];
 
-            const items = controller.getNodeMenuItems(node);
-            items[1].callback();
+            controller.nodePopup.onDelete(node);
 
             expect(mockStructure.removeNode).toHaveBeenCalledWith(node);
             expect(mockStructure.clearSelection).toHaveBeenCalled();
             expect(mockUi.updateSelection).toHaveBeenCalledWith({});
             expect(onStatsUpdate).toHaveBeenCalled();
+        });
+
+        it('should not delete node if not in structure', () => {
+            const node = { id: 1, fixed: false, setFixed: vi.fn() };
+            mockStructure.nodes = []; // Node not in structure
+
+            controller.nodePopup.onDelete(node);
+
+            expect(mockStructure.removeNode).not.toHaveBeenCalled();
         });
     });
 
@@ -316,6 +306,26 @@ describe('ContextMenuController', () => {
 
         it('should set up onPositionChange callback', () => {
             expect(controller.weightPopup.onPositionChange).toBeDefined();
+        });
+    });
+
+    describe('node popup callbacks', () => {
+        it('should set up onDelete callback', () => {
+            expect(controller.nodePopup.onDelete).toBeDefined();
+        });
+
+        it('should set up onPinToggle callback', () => {
+            expect(controller.nodePopup.onPinToggle).toBeDefined();
+        });
+
+        it('should set up onMassChange callback', () => {
+            expect(controller.nodePopup.onMassChange).toBeDefined();
+        });
+    });
+
+    describe('isNodePopupOpen', () => {
+        it('should return false when node popup is not open', () => {
+            expect(controller.isNodePopupOpen()).toBe(false);
         });
     });
 });

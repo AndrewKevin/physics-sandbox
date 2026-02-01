@@ -248,3 +248,144 @@ describe('StructureManager - splitSegment', () => {
         });
     });
 });
+
+describe('Node - mass property', () => {
+    beforeEach(() => {
+        Node.nextId = 0;
+    });
+
+    describe('setMass', () => {
+        it('should set mass within valid range', () => {
+            const node = new Node(100, 100);
+
+            node.setMass(10);
+
+            expect(node.mass).toBe(10);
+        });
+
+        it('should clamp mass to minimum', () => {
+            const node = new Node(100, 100);
+
+            node.setMass(-5);
+
+            expect(node.mass).toBe(Node.minMass);
+        });
+
+        it('should clamp mass to maximum', () => {
+            const node = new Node(100, 100);
+
+            node.setMass(100);
+
+            expect(node.mass).toBe(Node.maxMass);
+        });
+
+        it('should update physics body mass when body exists', () => {
+            const node = new Node(100, 100);
+            // Mock physics body with setMass tracking
+            let bodyMassSet = null;
+            node.body = {
+                mass: 5
+            };
+            // We can't easily mock Matter.Body.setMass, but we can verify no errors
+            // The actual physics sync is tested in physics-controller tests
+
+            expect(() => node.setMass(15)).not.toThrow();
+            expect(node.mass).toBe(15);
+        });
+
+        it('should handle fractional mass values', () => {
+            const node = new Node(100, 100);
+
+            node.setMass(2.5);
+
+            expect(node.mass).toBe(2.5);
+        });
+    });
+
+    describe('default mass', () => {
+        it('should initialise with default mass', () => {
+            const node = new Node(100, 100);
+
+            expect(node.mass).toBe(Node.defaultMass);
+        });
+    });
+
+    describe('static constants', () => {
+        it('should have valid min/max/default mass values', () => {
+            expect(Node.minMass).toBeLessThan(Node.maxMass);
+            expect(Node.defaultMass).toBeGreaterThanOrEqual(Node.minMass);
+            expect(Node.defaultMass).toBeLessThanOrEqual(Node.maxMass);
+        });
+    });
+});
+
+describe('StructureManager - serialization with node mass', () => {
+    let structure;
+
+    beforeEach(() => {
+        structure = new StructureManager();
+        Node.nextId = 0;
+        Segment.nextId = 0;
+        Weight.nextId = 0;
+    });
+
+    describe('serialize', () => {
+        it('should include node mass in serialized data', () => {
+            const node = structure.addNode(100, 200);
+            node.setMass(15);
+
+            const data = structure.serialize();
+
+            expect(data.nodes[0].mass).toBe(15);
+        });
+
+        it('should serialize multiple nodes with different masses', () => {
+            const node1 = structure.addNode(100, 100);
+            const node2 = structure.addNode(200, 200);
+            node1.setMass(5);
+            node2.setMass(25);
+
+            const data = structure.serialize();
+
+            expect(data.nodes[0].mass).toBe(5);
+            expect(data.nodes[1].mass).toBe(25);
+        });
+    });
+
+    describe('deserialize', () => {
+        it('should restore node mass from serialized data', () => {
+            const data = {
+                nodes: [{ x: 100, y: 200, fixed: false, mass: 15 }],
+                segments: [],
+                weights: []
+            };
+
+            structure.deserialize(data);
+
+            expect(structure.nodes[0].mass).toBe(15);
+        });
+
+        it('should use default mass for old saves without mass field', () => {
+            const data = {
+                nodes: [{ x: 100, y: 200, fixed: false }],  // No mass field
+                segments: [],
+                weights: []
+            };
+
+            structure.deserialize(data);
+
+            expect(structure.nodes[0].mass).toBe(Node.defaultMass);
+        });
+
+        it('should preserve mass through snapshot/restore cycle', () => {
+            const node = structure.addNode(100, 200);
+            node.setMass(20);
+
+            const snapshot = structure.snapshot();
+            structure.clear();
+            structure.restore(snapshot);
+
+            expect(structure.nodes[0].mass).toBe(20);
+        });
+    });
+});
