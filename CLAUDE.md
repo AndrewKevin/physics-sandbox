@@ -1,4 +1,16 @@
-# Physics Sandbox - Project Instructions
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Build Commands
+
+```bash
+npm run dev      # Start development server (http://localhost:5173)
+npm run build    # Production build to dist/
+npm run preview  # Preview production build
+npm run test     # Run tests in watch mode
+npm run test:run # Run tests once
+```
 
 ## Project Overview
 
@@ -30,13 +42,37 @@ Interactive 2D physics sandbox for exploring load and stress. Users create nodes
 
 ```
 src/
-├── main.js          # PhysicsSandbox class, simulation lifecycle, Matter.js integration
-├── structure.js     # Node, Segment, Weight, StructureManager classes, MATERIALS definitions
-├── renderer.js      # Canvas rendering, stress colours, visual feedback
-├── ui.js            # UIController, DOM event handling, callbacks
-├── context-menu.js  # Custom context menu with viewport boundary handling
-└── weight-popup.js  # Weight property editor popup with scrubber controls
+├── main.js                    # PhysicsSandbox orchestrator (648 lines)
+├── structure.js               # Node, Segment, Weight, StructureManager, MATERIALS
+├── renderer.js                # Canvas rendering, stress colours, visual feedback
+├── ui.js                      # UIController, DOM event handling, callbacks
+│
+├── position-utils.js          # Pure math: clampToCanvas, getPositionOnSegment
+├── drag-controller.js         # Node dragging state machine
+├── hover-controller.js        # Hover state tracking, cursor management
+├── physics-controller.js      # Matter.js lifecycle, body/constraint creation
+├── context-menu-controller.js # Menu factories, weight popup orchestration
+│
+├── context-menu.js            # Low-level context menu UI component
+└── weight-popup.js            # Weight property editor popup
 ```
+
+### Controller Pattern
+
+Controllers follow a consistent callback-based pattern for decoupling:
+
+```javascript
+this.drag = new DragController({
+    getBounds: () => ({ width: this.renderer.width, groundY: this.groundY }),
+    getNodeRadius: () => Node.radius,
+    onDragEnd: (node) => this.updateRestLengths(node)
+});
+```
+
+Benefits:
+- **Testable**: Controllers can be tested in isolation with mock callbacks
+- **Explicit dependencies**: Dependencies are declared at construction
+- **Single responsibility**: Each controller owns one concern
 
 ## Key Principles
 
@@ -51,6 +87,7 @@ When implementing common UI patterns or utilities (context menus, drag-and-drop,
 
 Current external packages used:
 - `matter-js` — Physics engine
+- `vanilla-context-menu` — Listed in package.json but **unused** (custom implementation in context-menu.js)
 
 ### Rely on Matter.js
 
@@ -128,14 +165,29 @@ Design systems that are **open for extension** but **closed for modification**. 
 2. Add detection logic in the dispatcher: `if (joint) { ... }`
 3. Existing node/segment factories remain unchanged
 
-### Type-Based Dispatching
+### Centralised Element Detection
 
-When handling events that affect different element types, use a dispatcher that:
-1. Detects the element type at the event location
-2. Routes to the appropriate handler
-3. Falls through to default behaviour if no element matched
+All element detection uses `findElementAt(x, y)` in main.js with strict priority order:
 
-Order matters — check more specific/smaller elements first (nodes before segments).
+```javascript
+findElementAt(x, y) {
+    // Priority: weight > node > segment (smallest hit areas first)
+    const weight = this.structure.findWeightAt(x, y);
+    if (weight) return { type: 'weight', element: weight };
+
+    const node = this.structure.findNodeAt(x, y);
+    if (node) return { type: 'node', element: node };
+
+    const segment = this.structure.findSegmentAt(x, y);
+    if (segment) return { type: 'segment', element: segment };
+
+    return null;
+}
+```
+
+This centralised method is used by click handlers, hover detection, and context menus. Adding a new element type requires:
+1. Adding detection to `findElementAt()` (respect priority order)
+2. Adding handlers for click/hover/context menu as needed
 
 ### Separation of Concerns
 
@@ -185,23 +237,17 @@ Stress colours map to: Cyan (low) → Yellow (medium) → Orange (high) → Mage
 
 ### Adding a context menu for a new element type
 
-1. Create factory method in `main.js`:
+1. Add factory method in `context-menu-controller.js`:
    ```javascript
    getMyElementMenuItems(element) {
        return [
-           { label: 'Action', callback: () => this.doAction(element) }
+           { label: 'Action', callback: () => this.structure.doAction(element) }
        ];
    }
    ```
-2. Add detection in `onRightClick()` dispatcher (order matters — specific before general):
-   ```javascript
-   const element = this.structure.findMyElementAt(pos.x, pos.y);
-   if (element) {
-       this.showContextMenu(e, this.getMyElementMenuItems(element));
-       return;
-   }
-   ```
+2. Update `showElementMenu()` in `context-menu-controller.js` to handle the new type
 3. Add `findMyElementAt()` method to `StructureManager` if needed
+4. Update `findAllElementsAt()` in `main.js` to include the new element type
 
 ### Simulation lifecycle
 

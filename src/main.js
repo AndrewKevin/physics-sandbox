@@ -3,17 +3,18 @@
  * Interactive physics simulation for exploring load and stress
  */
 
-import Matter from 'matter-js';
-import { StructureManager, Node, Weight, MATERIALS } from './structure.js';
+import { StructureManager, Node, MATERIALS } from './structure.js';
 import { Renderer } from './renderer.js';
 import { UIController } from './ui.js';
-import { WeightPopup } from './weight-popup.js';
-import { ContextMenu } from './context-menu.js';
+import { clampToCanvas } from './position-utils.js';
+import { DragController } from './drag-controller.js';
+import { HoverController } from './hover-controller.js';
+import { PhysicsController } from './physics-controller.js';
+import { ContextMenuController } from './context-menu-controller.js';
 
 class PhysicsSandbox {
     // Constants
     static GROUND_OFFSET = 60;
-    static TOUCH_TAP_THRESHOLD = 15;
     static GROUND_WIDTH_MULTIPLIER = 2;
 
     constructor() {
@@ -25,19 +26,31 @@ class PhysicsSandbox {
         // Mouse state
         this.mouseX = 0;
         this.mouseY = 0;
-        this.hoveredNode = null;
-        this.hoveredSegment = null;
-        this.hoveredWeight = null;
 
-        // Drag state
-        this.isDragging = false;
-        this.draggedNode = null;
-        this.dragStartMousePos = null;  // Mouse position when drag started
-        this.dragStartNodePos = null;   // Original node position for restoration
-        this.wasJustDragging = false;
+        // Drag controller
+        this.drag = new DragController({
+            getBounds: () => ({ width: this.renderer.width, groundY: this.groundY }),
+            getNodeRadius: () => Node.radius,
+            onDragStart: (node) => {
+                // Cursor feedback handled in onMouseMove
+            },
+            onDragMove: (node, pos) => {
+                node.updatePosition(pos.x, pos.y);
+            },
+            onDragEnd: (node) => {
+                // Update rest lengths of connected segments
+                for (const segment of this.structure.segments) {
+                    if (segment.nodeA === node || segment.nodeB === node) {
+                        segment.restLength = segment.calculateLength();
+                    }
+                }
+            },
+            onDragCancel: (node, originalPos) => {
+                node.updatePosition(originalPos.x, originalPos.y);
+            }
+        });
 
-        // Physics references
-        this.groundBody = null;
+        // Animation reference
         this.animationId = null;
 
         // Initialise components
@@ -46,7 +59,6 @@ class PhysicsSandbox {
         this.initPhysics();
         this.initUI();
         this.initContextMenu();
-        this.initWeightPopup();
         this.initEvents();
 
         // Start render loop
@@ -57,6 +69,9 @@ class PhysicsSandbox {
         this.canvas = document.getElementById('physics-canvas');
         this.renderer = new Renderer(this.canvas);
         this.groundY = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
+
+        // Initialise hover controller (needs canvas)
+        this.hover = new HoverController(this.canvas);
     }
 
     initStructure() {
@@ -64,15 +79,16 @@ class PhysicsSandbox {
     }
 
     initPhysics() {
-        // Create Matter.js engine (dormant until simulation starts)
-        this.engine = Matter.Engine.create({
-            gravity: { x: 0, y: 2 }  // Higher gravity for visible load
+        this.physics = new PhysicsController({
+            getCanvasDimensions: () => ({
+                width: this.renderer.width,
+                groundY: this.groundY,
+                groundOffset: PhysicsSandbox.GROUND_OFFSET
+            }),
+            getNodeRadius: () => Node.radius,
+            groundWidthMultiplier: PhysicsSandbox.GROUND_WIDTH_MULTIPLIER
         });
-
-        this.runner = Matter.Runner.create({
-            delta: 1000 / 60,
-            isFixed: true
-        });
+        this.physics.init();
     }
 
     initUI() {
@@ -130,157 +146,13 @@ class PhysicsSandbox {
     }
 
     initContextMenu() {
-        // Context menu will be created dynamically when needed
-        //
-        // Extensible Context Menu System:
-        // 1. Create a new get*MenuItems() method for your element type
-        // 2. Add element detection in onRightClick()
-        // 3. Call showContextMenu(event, menuItems) with your items
-        //
-        // Example:
-        //   const items = this.getMyElementMenuItems(element);
-        //   this.showContextMenu(e, items);
-        this.contextMenu = null;
-    }
-
-    initWeightPopup() {
-        this.weightPopup = new WeightPopup();
-
-        this.weightPopup.onDelete = (weight) => {
-            if (this.structure.weights.includes(weight)) {
-                this.structure.removeWeight(weight);
-                this.ui.updateSelection({});
-                this.updateStats();
-            }
-        };
-
-        this.weightPopup.onMassChange = () => {
-            // Weight mass is updated directly by the popup
-            // Just refresh the UI selection info
-            const weight = this.structure.selectedWeight;
-            if (weight) {
-                this.ui.updateSelection({ weight });
-            }
-        };
-
-        this.weightPopup.onPositionChange = () => {
-            // Weight position is updated directly by the popup
-            const weight = this.structure.selectedWeight;
-            if (weight) {
-                this.ui.updateSelection({ weight });
-            }
-        };
-
-        this.weightPopup.onClose = () => {
-            // Optionally clear selection when popup closes
-        };
-    }
-
-    /**
-     * Show a context menu with specified items at event position.
-     * @param {Event} event - The mouse event for positioning
-     * @param {Array} menuItems - Array of menu item objects {label, callback}
-     */
-    showContextMenu(event, menuItems) {
-        // Close all existing menus first
-        this.closeAllMenus();
-
-        // Show context menu at click position
-        this.contextMenu = new ContextMenu();
-        this.contextMenu.show(event.clientX, event.clientY, menuItems);
-    }
-
-    /**
-     * Generate menu items for a node context menu.
-     * @param {Node} node - The node to create menu items for
-     * @returns {Array} Array of menu item objects
-     */
-    getNodeMenuItems(node) {
-        return [
-            {
-                label: `⚓  ${node.fixed ? 'Unpin' : 'Pin'} Node`,
-                callback: () => {
-                    if (this.structure.nodes.includes(node)) {
-                        node.setFixed(!node.fixed);
-                    }
-                }
-            },
-            {
-                label: '✕  Delete Node',
-                callback: () => {
-                    if (this.structure.nodes.includes(node)) {
-                        this.structure.removeNode(node);
-                        this.ui.updateSelection({});
-                        this.updateStats();
-                    }
-                }
-            }
-        ];
-    }
-
-    /**
-     * Generate menu items for a segment context menu.
-     * @param {Segment} segment - The segment to create menu items for
-     * @param {number} clickX - X position of click (for weight placement)
-     * @param {number} clickY - Y position of click (for weight placement)
-     * @returns {Array} Array of menu item objects
-     */
-    getSegmentMenuItems(segment, clickX, clickY) {
-        return [
-            {
-                label: '⚙️  Edit Properties',
-                callback: () => {
-                    this.structure.selectSegment(segment);
-                    this.ui.updateSelection({ segment });
-                }
-            },
-            {
-                label: '⚖️  Add Weight',
-                callback: () => {
-                    if (this.structure.segments.includes(segment)) {
-                        // Calculate position along segment (0-1) based on click position
-                        const position = this.getPositionOnSegment(segment, clickX, clickY);
-                        const weight = this.structure.addWeight(segment, position);
-                        this.structure.selectWeight(weight);
-                        this.ui.updateSelection({ weight });
-                        this.updateStats();
-                    }
-                }
-            },
-            {
-                label: '✕  Delete Segment',
-                callback: () => {
-                    if (this.structure.segments.includes(segment)) {
-                        this.structure.removeSegment(segment);
-                        this.ui.updateSelection({});
-                        this.updateStats();
-                    }
-                }
-            }
-        ];
-    }
-
-    /**
-     * Calculate the position (0-1) of a point projected onto a segment.
-     * @param {Segment} segment - The segment
-     * @param {number} px - Point X
-     * @param {number} py - Point Y
-     * @returns {number} Position along segment (0-1)
-     */
-    getPositionOnSegment(segment, px, py) {
-        const x1 = segment.nodeA.x;
-        const y1 = segment.nodeA.y;
-        const x2 = segment.nodeB.x;
-        const y2 = segment.nodeB.y;
-
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const lenSq = dx * dx + dy * dy;
-
-        if (lenSq === 0) return 0.5;
-
-        const t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
-        return Math.max(0, Math.min(1, t));
+        this.menus = new ContextMenuController({
+            structure: this.structure,
+            ui: this.ui,
+            getGroundY: () => this.groundY,
+            getNodeRadius: () => Node.radius,
+            onStatsUpdate: () => this.updateStats()
+        });
     }
 
     initEvents() {
@@ -307,10 +179,11 @@ class PhysicsSandbox {
             this.groundY = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
 
             // Update ground body position during simulation
-            if (this.isSimulating && this.groundBody) {
-                Matter.Body.setPosition(this.groundBody, {
-                    x: this.renderer.width / 2,
-                    y: this.groundY + PhysicsSandbox.GROUND_OFFSET / 2
+            if (this.isSimulating) {
+                this.physics.updateGroundPosition({
+                    width: this.renderer.width,
+                    groundY: this.groundY,
+                    groundOffset: PhysicsSandbox.GROUND_OFFSET
                 });
             }
         });
@@ -336,21 +209,14 @@ class PhysicsSandbox {
         // ESC key priority: 1) close menus, 2) cancel drag, 3) clear selection
         if (e.key === 'Escape') {
             // First, close any open menus/popups
-            if (this.contextMenu?.isOpen() || this.weightPopup?.isOpen()) {
+            if (this.menus.isAnyOpen()) {
                 this.closeAllMenus();
                 return;
             }
 
             // Second, cancel drag and restore node position
-            if (this.isDragging) {
-                if (this.draggedNode && this.dragStartNodePos) {
-                    this.draggedNode.updatePosition(this.dragStartNodePos.x, this.dragStartNodePos.y);
-                }
-                this.isDragging = false;
-                this.draggedNode = null;
-                this.dragStartMousePos = null;
-                this.dragStartNodePos = null;
-                this.wasJustDragging = false;
+            if (this.drag.isActive) {
+                this.drag.cancelDrag();
                 return;
             }
 
@@ -361,7 +227,7 @@ class PhysicsSandbox {
         }
 
         // Delete selected element on Delete/Backspace
-        if ((e.key === 'Delete' || e.key === 'Backspace') && !this.isSimulating && !this.isDragging) {
+        if ((e.key === 'Delete' || e.key === 'Backspace') && !this.isSimulating && !this.drag.isActive) {
             // Don't handle if typing in an input element
             const tagName = e.target.tagName;
             if (tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA') return;
@@ -381,64 +247,28 @@ class PhysicsSandbox {
 
         if (selectedWeight) {
             // Close popup if it's showing this weight
-            if (this.weightPopup?.isOpen() && this.weightPopup.weight === selectedWeight) {
-                this.weightPopup.close();
+            if (this.menus.isWeightPopupOpen() && this.menus.popupWeight === selectedWeight) {
+                this.closeAllMenus();
             }
             this.structure.removeWeight(selectedWeight);
             this.ui.updateSelection({});
             this.updateStats();
         } else if (selectedNode) {
             // Close popup if it's showing a weight attached to this node
-            if (this.weightPopup?.isOpen() && this.weightPopup.weight?.isAttachedTo(selectedNode)) {
-                this.weightPopup.close();
+            if (this.menus.isWeightPopupOpen() && this.menus.popupWeight?.isAttachedTo(selectedNode)) {
+                this.closeAllMenus();
             }
             this.structure.removeNode(selectedNode);
             this.ui.updateSelection({});
             this.updateStats();
         } else if (selectedSegment) {
             // Close popup if it's showing a weight attached to this segment
-            if (this.weightPopup?.isOpen() && this.weightPopup.weight?.isAttachedTo(selectedSegment)) {
-                this.weightPopup.close();
+            if (this.menus.isWeightPopupOpen() && this.menus.popupWeight?.isAttachedTo(selectedSegment)) {
+                this.closeAllMenus();
             }
             this.structure.removeSegment(selectedSegment);
             this.ui.updateSelection({});
             this.updateStats();
-        }
-    }
-
-    /**
-     * Clamp position to canvas bounds, keeping node fully visible.
-     * @param {number} x - X position
-     * @param {number} y - Y position
-     * @returns {{x: number, y: number}} Clamped position
-     */
-    clampToCanvas(x, y) {
-        const minX = Node.radius;
-        const maxX = this.renderer.width - Node.radius;
-        const minY = Node.radius;
-        const maxY = this.groundY - Node.radius;
-
-        return {
-            x: Math.max(minX, Math.min(maxX, x)),
-            y: Math.max(minY, Math.min(maxY, y))
-        };
-    }
-
-    /**
-     * Clear hover states from all elements.
-     */
-    clearHoverStates() {
-        if (this.hoveredNode) {
-            this.hoveredNode.hovered = false;
-            this.hoveredNode = null;
-        }
-        if (this.hoveredSegment) {
-            this.hoveredSegment.hovered = false;
-            this.hoveredSegment = null;
-        }
-        if (this.hoveredWeight) {
-            this.hoveredWeight.hovered = false;
-            this.hoveredWeight = null;
         }
     }
 
@@ -454,9 +284,7 @@ class PhysicsSandbox {
             if (!this.isSimulating) {
                 const node = this.structure.findNodeAt(pos.x, pos.y);
                 if (node) {
-                    this.draggedNode = node;
-                    this.dragStartMousePos = { x: pos.x, y: pos.y };
-                    this.dragStartNodePos = { x: node.x, y: node.y };
+                    this.drag.beginPotentialDrag(node, pos);
                 }
             }
         }
@@ -470,23 +298,17 @@ class PhysicsSandbox {
             this.mouseY = pos.y;
 
             // Handle dragging
-            if (!this.isSimulating && this.draggedNode && this.dragStartMousePos) {
-                const dx = pos.x - this.dragStartMousePos.x;
-                const dy = pos.y - this.dragStartMousePos.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance > PhysicsSandbox.TOUCH_TAP_THRESHOLD || this.isDragging) {
-                    this.isDragging = true;
-                    const clamped = this.clampToCanvas(pos.x, pos.y);
-                    this.draggedNode.updatePosition(clamped.x, clamped.y);
+            if (!this.isSimulating && this.drag.isTracking) {
+                const result = this.drag.updateDrag(pos);
+                if (result.isDragging) {
                     return;
                 }
             }
 
             // Update hover states for visual feedback
             if (!this.isSimulating) {
-                this.clearHoverStates();
-                this.updateHoverState(pos.x, pos.y);
+                this.hover.clear();
+                this.hover.update(this.findElementAt(pos.x, pos.y));
             }
         }
     }
@@ -496,31 +318,17 @@ class PhysicsSandbox {
             e.preventDefault();
             const pos = this.getTouchPos(e.changedTouches[0]);
 
-            const draggedNode = this.draggedNode;
+            const { wasDrag } = this.drag.endDrag();
 
-            // Clear drag state
-            this.draggedNode = null;
-            this.dragStartMousePos = null;
-            this.dragStartNodePos = null;
-
-            if (this.isDragging) {
-                this.isDragging = false;
-
-                // Update rest lengths of connected segments after drag
-                for (const segment of this.structure.segments) {
-                    if (segment.nodeA === draggedNode || segment.nodeB === draggedNode) {
-                        segment.restLength = segment.calculateLength();
-                    }
-                }
-            } else {
+            if (!wasDrag) {
                 // Only trigger click if finger didn't move much (tap vs drag)
                 const dx = pos.x - this.touchStartPos.x;
                 const dy = pos.y - this.touchStartPos.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
-                if (distance < PhysicsSandbox.TOUCH_TAP_THRESHOLD) {
+                if (distance < DragController.TAP_THRESHOLD) {
                     // Simulate click at touch position (skip wasJustDragging check as we handle it here)
-                    this.wasJustDragging = false;
+                    this.drag.clearClickSuppression();
                     this.onClick({ clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY });
                 }
             }
@@ -535,33 +343,13 @@ class PhysicsSandbox {
         const node = this.structure.findNodeAt(pos.x, pos.y);
 
         if (node) {
-            this.draggedNode = node;
-            this.dragStartMousePos = { x: pos.x, y: pos.y };
-            this.dragStartNodePos = { x: node.x, y: node.y };
+            this.drag.beginPotentialDrag(node, pos);
         }
     }
 
     onMouseUp(e) {
         if (e.button !== 0) return;
-
-        const draggedNode = this.draggedNode;
-
-        // Clear drag state
-        this.draggedNode = null;
-        this.dragStartMousePos = null;
-        this.dragStartNodePos = null;
-
-        if (this.isDragging) {
-            this.isDragging = false;
-            this.wasJustDragging = true;
-
-            // Update rest lengths of connected segments after drag
-            for (const segment of this.structure.segments) {
-                if (segment.nodeA === draggedNode || segment.nodeB === draggedNode) {
-                    segment.restLength = segment.calculateLength();
-                }
-            }
-        }
+        this.drag.endDrag();
     }
 
     onMouseMove(e) {
@@ -570,16 +358,9 @@ class PhysicsSandbox {
         this.mouseY = pos.y;
 
         // Handle dragging
-        if (!this.isSimulating && this.draggedNode && this.dragStartMousePos) {
-            const dx = pos.x - this.dragStartMousePos.x;
-            const dy = pos.y - this.dragStartMousePos.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            // Start dragging after moving past threshold
-            if (distance > PhysicsSandbox.TOUCH_TAP_THRESHOLD || this.isDragging) {
-                this.isDragging = true;
-                const clamped = this.clampToCanvas(pos.x, pos.y);
-                this.draggedNode.updatePosition(clamped.x, clamped.y);
+        if (!this.isSimulating && this.drag.isTracking) {
+            const result = this.drag.updateDrag(pos);
+            if (result.isDragging) {
                 this.canvas.style.cursor = 'grabbing';
                 return;
             }
@@ -587,47 +368,20 @@ class PhysicsSandbox {
 
         // Update hover states and cursor
         if (!this.isSimulating) {
-            this.clearHoverStates();
-            this.updateHoverState(pos.x, pos.y);
+            this.hover.clear();
+            this.hover.update(this.findElementAt(pos.x, pos.y));
         } else {
             this.canvas.style.cursor = 'default';
         }
     }
 
-    /**
-     * Update hover state for element at position and set appropriate cursor.
-     * @param {number} x - X position
-     * @param {number} y - Y position
-     */
-    updateHoverState(x, y) {
-        const found = this.findElementAt(x, y);
-
-        if (!found) {
-            this.canvas.style.cursor = 'default';
-            return;
-        }
-
-        const { type, element } = found;
-        element.hovered = true;
-
-        if (type === 'weight') {
-            this.hoveredWeight = element;
-            this.canvas.style.cursor = 'pointer';
-        } else if (type === 'node') {
-            this.hoveredNode = element;
-            this.canvas.style.cursor = 'grab';
-        } else if (type === 'segment') {
-            this.hoveredSegment = element;
-            this.canvas.style.cursor = 'pointer';
-        }
-    }
 
     onClick(e) {
         if (this.isSimulating) return;
 
         // Skip click if we just finished dragging
-        if (this.wasJustDragging) {
-            this.wasJustDragging = false;
+        if (this.drag.shouldSuppressClick) {
+            this.drag.clearClickSuppression();
             return;
         }
 
@@ -716,7 +470,8 @@ class PhysicsSandbox {
 
         if (currentlySelectedNode) {
             // Create new node and connect to selected node
-            const clamped = this.clampToCanvas(x, y);
+            const bounds = { width: this.renderer.width, groundY: this.groundY };
+            const clamped = clampToCanvas(x, y, bounds, Node.radius);
             const newNode = this.structure.addNode(clamped.x, clamped.y);
             this.structure.addSegment(currentlySelectedNode, newNode, this.material);
 
@@ -737,22 +492,8 @@ class PhysicsSandbox {
         if (this.isSimulating) return;
 
         const pos = this.getMousePos(e);
-
-        // Find all elements at this position
         const elements = this.findAllElementsAt(pos.x, pos.y);
-
-        if (elements.length === 0) {
-            // Right-click on empty space - show menu with "Add Node" option
-            const menuItems = this.getEmptySpaceMenuItems(pos.x, pos.y);
-            this.showContextMenu(e, menuItems);
-        } else if (elements.length === 1) {
-            // Single element - show its menu directly
-            this.showElementMenu(elements[0], e, pos);
-        } else {
-            // Multiple elements - show picker menu
-            const menuItems = this.getElementPickerMenuItems(elements, e, pos);
-            this.showContextMenu(e, menuItems);
-        }
+        this.menus.handleRightClick(e, pos.x, pos.y, elements);
     }
 
     /**
@@ -801,88 +542,10 @@ class PhysicsSandbox {
     }
 
     /**
-     * Show the appropriate menu for an element.
-     * @param {Object} item - {type, element} object
-     * @param {Event} e - The mouse event
-     * @param {Object} pos - {x, y} canvas position
-     */
-    showElementMenu(item, e, pos) {
-        if (item.type === 'weight') {
-            this.closeAllMenus();
-            this.structure.selectWeight(item.element);
-            this.ui.updateSelection({ weight: item.element });
-            this.weightPopup.show(item.element, e.clientX, e.clientY);
-        } else if (item.type === 'node') {
-            const menuItems = this.getNodeMenuItems(item.element);
-            this.showContextMenu(e, menuItems);
-        } else if (item.type === 'segment') {
-            const menuItems = this.getSegmentMenuItems(item.element, pos.x, pos.y);
-            this.showContextMenu(e, menuItems);
-        }
-    }
-
-    /**
-     * Generate picker menu items for overlapping elements.
-     * @param {Array} elements - Array of {type, element} objects
-     * @param {Event} e - The mouse event (for submenu positioning)
-     * @param {Object} pos - {x, y} canvas position
-     * @returns {Array} Array of menu item objects
-     */
-    getElementPickerMenuItems(elements, e, pos) {
-        return elements.map(item => {
-            let label;
-            if (item.type === 'weight') {
-                label = `⚖️  Weight #${item.element.id}`;
-            } else if (item.type === 'node') {
-                label = `📍  Node #${item.element.id}`;
-            } else if (item.type === 'segment') {
-                label = `📏  Segment #${item.element.id}`;
-            }
-
-            return {
-                label,
-                callback: () => {
-                    // showElementMenu calls closeAllMenus() first, so no delay needed
-                    this.showElementMenu(item, e, pos);
-                }
-            };
-        });
-    }
-
-    /**
-     * Generate menu items for empty space context menu.
-     * @param {number} x - X position for new node
-     * @param {number} y - Y position for new node
-     * @returns {Array} Array of menu item objects
-     */
-    getEmptySpaceMenuItems(x, y) {
-        // Clamp position above ground
-        const clampedY = Math.min(y, this.groundY - Node.radius);
-
-        return [
-            {
-                label: '📍  Add Node',
-                callback: () => {
-                    const node = this.structure.addNode(x, clampedY);
-                    this.structure.selectNode(node);
-                    this.ui.updateSelection({ node });
-                    this.updateStats();
-                }
-            }
-        ];
-    }
-
-    /**
      * Close all open menus (context menu and weight popup).
      */
     closeAllMenus() {
-        if (this.contextMenu) {
-            this.contextMenu.close();
-            this.contextMenu = null;
-        }
-        if (this.weightPopup?.isOpen()) {
-            this.weightPopup.close();
-        }
+        this.menus.closeAll();
     }
 
     setMaterial(material) {
@@ -902,262 +565,29 @@ class PhysicsSandbox {
         this.ui.setSimulating(true);
 
         // Clear hover states
-        this.clearHoverStates();
+        this.hover.clear();
 
-        // Clear existing physics world
-        Matter.World.clear(this.engine.world);
-        Matter.Engine.clear(this.engine);
-
-        // Recreate engine to ensure clean state
-        // Higher gravity for more visible stress
-        this.engine = Matter.Engine.create({
-            gravity: { x: 0, y: 2 }
-        });
-
-        // Collision categories - used to prevent weight/node overlap issues
-        const CATEGORY_NODE = 0x0001;
-        const CATEGORY_WEIGHT = 0x0002;
-        const CATEGORY_GROUND = 0x0004;
-
-        // Create ground
-        this.groundBody = Matter.Bodies.rectangle(
-            this.renderer.width / 2,
-            this.groundY + PhysicsSandbox.GROUND_OFFSET / 2,
-            this.renderer.width * PhysicsSandbox.GROUND_WIDTH_MULTIPLIER,  // Extra wide to handle resize
-            PhysicsSandbox.GROUND_OFFSET,
-            {
-                isStatic: true,
-                label: 'ground',
-                collisionFilter: {
-                    category: CATEGORY_GROUND,
-                    mask: CATEGORY_NODE | CATEGORY_WEIGHT  // Collide with both
-                }
-            }
-        );
-        Matter.World.add(this.engine.world, this.groundBody);
-
-        // Create physics bodies for nodes
-        for (const node of this.structure.nodes) {
-            const body = Matter.Bodies.circle(node.x, node.y, Node.radius, {
-                isStatic: node.fixed,
-                mass: 5,              // Heavier nodes = more gravitational load
-                restitution: 0.2,
-                friction: 0.8,
-                frictionStatic: 1.0,
-                frictionAir: 0.01,    // Slight air resistance for stability
-                collisionFilter: {
-                    category: CATEGORY_NODE,
-                    mask: CATEGORY_GROUND  // Only collide with ground, not weights
-                }
-            });
-            node.body = body;
-            Matter.World.add(this.engine.world, body);
-        }
-
-        // Create constraints for segments
-        for (const segment of this.structure.segments) {
-            const materialData = MATERIALS[segment.material];
-
-            // Use segment's own stiffness/damping if set, otherwise fall back to material defaults
-            const stiffness = segment.stiffness !== undefined ? segment.stiffness : materialData.stiffness;
-            const damping = segment.damping !== undefined ? segment.damping : materialData.damping;
-
-            const constraint = Matter.Constraint.create({
-                bodyA: segment.nodeA.body,
-                bodyB: segment.nodeB.body,
-                stiffness: stiffness,
-                damping: damping,
-                length: segment.restLength
-            });
-
-            segment.constraint = constraint;
-            Matter.World.add(this.engine.world, constraint);
-        }
-
-        // Create physics bodies for weights
-        for (const weight of this.structure.weights) {
-            const pos = weight.getPosition();
-
-            // Create weight body (heavier, affected by gravity)
-            // Use dynamic radius based on mass
-            const body = Matter.Bodies.circle(pos.x, pos.y, weight.getRadius(), {
-                mass: weight.mass,
-                restitution: 0.1,
-                friction: 0.8,
-                frictionStatic: 1.0,
-                frictionAir: 0.02,
-                label: 'weight',
-                collisionFilter: {
-                    category: CATEGORY_WEIGHT,
-                    mask: CATEGORY_GROUND  // Only collide with ground, not nodes
-                }
-            });
-            weight.body = body;
-            Matter.World.add(this.engine.world, body);
-
-            // Create constraint to attachment point
-            if (weight.attachedToNode) {
-                // Simple constraint to node body
-                const constraint = Matter.Constraint.create({
-                    bodyA: weight.body,
-                    bodyB: weight.attachedToNode.body,
-                    stiffness: 0.9,
-                    damping: 0.1,
-                    length: 0
-                });
-                weight.constraint = constraint;
-                Matter.World.add(this.engine.world, constraint);
-            } else if (weight.attachedToSegment) {
-                // For segment attachment, create a constraint to a world point
-                // This will be updated each frame in updateWeightConstraints()
-                const constraint = Matter.Constraint.create({
-                    bodyA: weight.body,
-                    pointB: pos,
-                    stiffness: 0.9,
-                    damping: 0.1,
-                    length: 0
-                });
-                weight.constraint = constraint;
-                Matter.World.add(this.engine.world, constraint);
-            }
-        }
-
-        // Add physics update listener for tension-only/compression-only behaviour
-        // Store reference so we can remove it later
-        this.constraintModeHandler = () => {
-            this.updateConstraintModes();
-            this.updateWeightConstraints();
-        };
-        Matter.Events.on(this.engine, 'beforeUpdate', this.constraintModeHandler);
-
-        // Start physics runner
-        Matter.Runner.run(this.runner, this.engine);
+        // Start physics simulation
+        this.physics.start(this.structure);
 
         // Clear selection during simulation
         this.structure.clearSelection();
         this.ui.updateSelection({});
     }
 
-    /**
-     * Update constraint modes and cache segment lengths.
-     * Called each physics frame via Matter.Events beforeUpdate.
-     *
-     * For tension-only/compression-only segments, we set stiffness=0
-     * when the constraint should be inactive. This is the standard
-     * Matter.js approach for soft-disabling constraints.
-     */
-    updateConstraintModes() {
-        // Small tolerance to prevent flickering at exact rest length (0.5% of rest length)
-        const TOLERANCE_RATIO = 0.005;
-
-        for (const segment of this.structure.segments) {
-            // Skip if no constraint or missing bodies
-            if (!segment.constraint || !segment.nodeA.body || !segment.nodeB.body) continue;
-
-            // Use Matter.js Vector for length calculation (reused by stress calculation)
-            const posA = segment.nodeA.body.position;
-            const posB = segment.nodeB.body.position;
-            segment.currentLength = Matter.Vector.magnitude(Matter.Vector.sub(posB, posA));
-
-            // Standard segments don't need mode logic
-            if (!segment.tensionOnly && !segment.compressionOnly) {
-                segment.isSlack = false;
-                continue;
-            }
-
-            // Calculate tolerance based on rest length
-            const tolerance = segment.restLength * TOLERANCE_RATIO;
-
-            // Determine if in tension or compression (with tolerance band)
-            const inTension = segment.currentLength > segment.restLength + tolerance;
-            const inCompression = segment.currentLength < segment.restLength - tolerance;
-
-            // Apply tension-only / compression-only logic
-            const shouldBeSlack =
-                (segment.tensionOnly && inCompression) ||
-                (segment.compressionOnly && inTension);
-
-            segment.isSlack = shouldBeSlack;
-            segment.constraint.stiffness = shouldBeSlack ? 0 : segment.stiffness;
-        }
-    }
-
-    /**
-     * Update segment-attached weight constraints.
-     * The attachment point moves with the segment, so we need to
-     * recalculate pointB each frame.
-     */
-    updateWeightConstraints() {
-        for (const weight of this.structure.weights) {
-            // Only need to update segment-attached weights
-            if (!weight.attachedToSegment || !weight.constraint) continue;
-
-            const seg = weight.attachedToSegment;
-            if (!seg.nodeA.body || !seg.nodeB.body) continue;
-
-            // Calculate current attachment point on segment
-            const posA = seg.nodeA.body.position;
-            const posB = seg.nodeB.body.position;
-            const attachPoint = {
-                x: posA.x + (posB.x - posA.x) * weight.position,
-                y: posA.y + (posB.y - posA.y) * weight.position
-            };
-
-            // Update constraint's world attachment point
-            weight.constraint.pointB = attachPoint;
-        }
-    }
-
     stopSimulation() {
         this.isSimulating = false;
         this.ui.setSimulating(false);
 
-        // Stop physics runner
-        Matter.Runner.stop(this.runner);
-
-        // Remove the constraint mode event listener to prevent accumulation
-        if (this.constraintModeHandler) {
-            Matter.Events.off(this.engine, 'beforeUpdate', this.constraintModeHandler);
-            this.constraintModeHandler = null;
-        }
-
-        // Reset node positions from bodies
-        for (const node of this.structure.nodes) {
-            if (node.body) {
-                node.x = node.body.position.x;
-                node.y = node.body.position.y;
-                node.body = null;
-            }
-        }
-
-        // Clear constraints and reset slack state
-        for (const segment of this.structure.segments) {
-            segment.constraint = null;
-            segment.isSlack = false;  // Reset visual state
-        }
-
-        // Clear weight bodies and constraints
-        for (const weight of this.structure.weights) {
-            weight.body = null;
-            weight.constraint = null;
-        }
-
-        // Clear physics world
-        Matter.World.clear(this.engine.world);
-        this.groundBody = null;
+        // Stop physics and sync positions back
+        this.physics.stop(this.structure);
     }
 
     reset() {
         this.stopSimulation();
         this.structure.clear();
-        this.hoveredNode = null;
-        this.hoveredSegment = null;
-        this.hoveredWeight = null;
-        this.isDragging = false;
-        this.draggedNode = null;
-        this.dragStartMousePos = null;
-        this.dragStartNodePos = null;
-        this.wasJustDragging = false;
+        this.hover.reset();
+        this.drag.reset();
         this.ui.updateSelection({});
         this.updateStats();
     }

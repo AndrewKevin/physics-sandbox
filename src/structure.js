@@ -2,6 +2,14 @@
  * Structure Manager - Nodes, Segments, and Materials
  */
 
+// Stress colours (must match CSS variables in styles.css)
+export const STRESS_COLORS = {
+    low: '#4ADE80',       // Green - healthy
+    medium: '#FFE600',    // Yellow - warning
+    high: '#FF6B35',      // Orange - danger
+    critical: '#FF3AF2'   // Magenta - failure
+};
+
 // Material definitions
 export const MATERIALS = {
     beam: {
@@ -119,15 +127,15 @@ export class Segment {
     }
 
     getStressColor() {
-        // Interpolate between stress colors
+        // Interpolate between stress colors (traffic light gradient)
         if (this.stress < 0.25) {
-            return '#00F5D4';  // Low - Cyan
+            return STRESS_COLORS.low;
         } else if (this.stress < 0.5) {
-            return '#FFE600';  // Medium - Yellow
+            return STRESS_COLORS.medium;
         } else if (this.stress < 0.75) {
-            return '#FF6B35';  // High - Orange
+            return STRESS_COLORS.high;
         } else {
-            return '#FF3AF2';  // Critical - Magenta
+            return STRESS_COLORS.critical;
         }
     }
 }

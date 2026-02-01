@@ -16,8 +16,8 @@
     --accent-4: #FF6B35;  /* Orange */
     --accent-5: #7B2FFF;  /* Purple */
 
-    /* Stress Colors */
-    --stress-low: #00F5D4;
+    /* Stress Colors (must match STRESS_COLORS in structure.js) */
+    --stress-low: #4ADE80;
     --stress-medium: #FFE600;
     --stress-high: #FF6B35;
     --stress-critical: #FF3AF2;
@@ -442,7 +442,7 @@ body::after {
 }
 
 .stress-chip.low {
-    background: rgba(0, 245, 212, 0.15);
+    background: rgba(74, 222, 128, 0.15);
     border-color: var(--stress-low);
     color: var(--stress-low);
 }
