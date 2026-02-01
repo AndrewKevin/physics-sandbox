@@ -11,6 +11,7 @@ import { DragController } from './drag-controller.js';
 import { HoverController } from './hover-controller.js';
 import { PhysicsController } from './physics-controller.js';
 import { ContextMenuController } from './context-menu-controller.js';
+import { StateModal } from './state-modal.js';
 
 class PhysicsSandbox {
     // Constants
@@ -22,6 +23,9 @@ class PhysicsSandbox {
         this.material = 'beam';
         this.isSimulating = false;
         this.groundY = 0;
+
+        // Snapshot for simulation restore
+        this.preSimulationSnapshot = null;
 
         // Mouse state
         this.mouseX = 0;
@@ -52,6 +56,9 @@ class PhysicsSandbox {
 
         // Animation reference
         this.animationId = null;
+
+        // State modal for save/load
+        this.stateModal = new StateModal();
 
         // Initialise components
         this.initCanvas();
@@ -95,7 +102,7 @@ class PhysicsSandbox {
         this.ui = new UIController(
             (material) => this.setMaterial(material),
             (simulating) => this.toggleSimulation(simulating),
-            () => this.reset()
+            () => this.clear()
         );
 
         // Wire up property change callbacks
@@ -143,6 +150,10 @@ class PhysicsSandbox {
                 seg.damping = damping;
             }
         });
+
+        // Wire up save/load callbacks
+        this.ui.setSaveCallback(() => this.saveState());
+        this.ui.setLoadCallback(() => this.loadState());
     }
 
     initContextMenu() {
@@ -206,15 +217,21 @@ class PhysicsSandbox {
     }
 
     onKeyDown(e) {
-        // ESC key priority: 1) close menus, 2) cancel drag, 3) clear selection
+        // ESC key priority: 1) close state modal, 2) close menus, 3) cancel drag, 4) clear selection
         if (e.key === 'Escape') {
-            // First, close any open menus/popups
+            // First, close state modal if open
+            if (this.stateModal.isOpen()) {
+                this.stateModal.close();
+                return;
+            }
+
+            // Second, close any open menus/popups
             if (this.menus.isAnyOpen()) {
                 this.closeAllMenus();
                 return;
             }
 
-            // Second, cancel drag and restore node position
+            // Third, cancel drag and restore node position
             if (this.drag.isActive) {
                 this.drag.cancelDrag();
                 return;
@@ -561,6 +578,9 @@ class PhysicsSandbox {
     }
 
     startSimulation() {
+        // Take snapshot before simulation for restore on stop
+        this.preSimulationSnapshot = this.structure.snapshot();
+
         this.isSimulating = true;
         this.ui.setSimulating(true);
 
@@ -579,17 +599,57 @@ class PhysicsSandbox {
         this.isSimulating = false;
         this.ui.setSimulating(false);
 
-        // Stop physics and sync positions back
+        // Stop physics
         this.physics.stop(this.structure);
+
+        // Restore to pre-simulation state
+        if (this.preSimulationSnapshot) {
+            this.structure.restore(this.preSimulationSnapshot);
+            this.preSimulationSnapshot = null;
+        }
     }
 
-    reset() {
+    clear() {
         this.stopSimulation();
         this.structure.clear();
         this.hover.reset();
         this.drag.reset();
+        this.preSimulationSnapshot = null;
         this.ui.updateSelection({});
         this.updateStats();
+    }
+
+    /**
+     * Show save modal with current structure state.
+     */
+    saveState() {
+        // Stop simulation if running (so we save the pre-simulation state)
+        if (this.isSimulating) {
+            this.stopSimulation();
+        }
+
+        const state = this.structure.serialize();
+        const json = JSON.stringify(state, null, 2);
+        this.stateModal.showSave(json);
+    }
+
+    /**
+     * Show load modal and restore structure from pasted state.
+     */
+    loadState() {
+        // Stop simulation if running
+        if (this.isSimulating) {
+            this.stopSimulation();
+        }
+
+        this.stateModal.showLoad((state) => {
+            this.structure.deserialize(state);
+            this.preSimulationSnapshot = null;
+            this.hover.reset();
+            this.drag.reset();
+            this.ui.updateSelection({});
+            this.updateStats();
+        });
     }
 
     updateStats() {

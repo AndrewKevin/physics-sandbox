@@ -3,11 +3,11 @@
  */
 
 export class UIController {
-    constructor(onMaterialChange, onSimToggle, onReset) {
+    constructor(onMaterialChange, onSimToggle, onClear) {
         // Callbacks
         this.onMaterialChange = onMaterialChange;
         this.onSimToggle = onSimToggle;
-        this.onReset = onReset;
+        this.onClear = onClear;
 
         // State
         this.currentMaterial = 'beam';
@@ -16,7 +16,9 @@ export class UIController {
         this.elements = {
             materialButtons: document.querySelectorAll('.material-btn'),
             simToggle: this.getElement('sim-toggle'),
-            simReset: this.getElement('sim-reset'),
+            simClear: this.getElement('sim-clear'),
+            stateSave: this.getElement('state-save'),
+            stateLoad: this.getElement('state-load'),
             selectionInfo: this.getElement('selection-info'),
             segmentOptions: this.getElement('segment-options'),
             segmentMaterial: this.getElement('segment-material'),
@@ -61,8 +63,17 @@ export class UIController {
             this.toggleSimulation();
         });
 
-        this.elements.simReset?.addEventListener('click', () => {
-            this.onReset();
+        this.elements.simClear?.addEventListener('click', () => {
+            this.onClear();
+        });
+
+        // State save/load
+        this.elements.stateSave?.addEventListener('click', () => {
+            this.onSave?.();
+        });
+
+        this.elements.stateLoad?.addEventListener('click', () => {
+            this.onLoad?.();
         });
 
         // Segment options
@@ -110,9 +121,9 @@ export class UIController {
                 e.preventDefault();
                 this.toggleSimulation();
                 break;
-            case 'r':
-                if (e.ctrlKey || e.metaKey) return; // Don't intercept browser refresh
-                this.onReset();
+            case 'c':
+                if (e.ctrlKey || e.metaKey) return; // Don't intercept browser copy
+                this.onClear();
                 break;
         }
     }
@@ -236,15 +247,15 @@ export class UIController {
         if (this.elements.statStress) {
             this.elements.statStress.textContent = `${Math.round(stats.maxStress * 100)}%`;
 
-            // Colour code max stress
+            // Colour code max stress (must match STRESS_COLORS in structure.js)
             if (stats.maxStress < 0.25) {
-                this.elements.statStress.style.color = '#00F5D4';
+                this.elements.statStress.style.color = '#4ADE80';  // Green - low
             } else if (stats.maxStress < 0.5) {
-                this.elements.statStress.style.color = '#FFE600';
+                this.elements.statStress.style.color = '#FFE600';  // Yellow - medium
             } else if (stats.maxStress < 0.75) {
-                this.elements.statStress.style.color = '#FF6B35';
+                this.elements.statStress.style.color = '#FF6B35';  // Orange - high
             } else {
-                this.elements.statStress.style.color = '#FF3AF2';
+                this.elements.statStress.style.color = '#FF3AF2';  // Magenta - critical
             }
         }
     }
@@ -268,5 +279,14 @@ export class UIController {
 
     setSegmentTensionCallback(callback) {
         this.onSegmentTensionChange = callback;
+    }
+
+    // Set callbacks for state save/load
+    setSaveCallback(callback) {
+        this.onSave = callback;
+    }
+
+    setLoadCallback(callback) {
+        this.onLoad = callback;
     }
 }

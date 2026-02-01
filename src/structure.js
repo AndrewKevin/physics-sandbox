@@ -441,4 +441,99 @@ export class StructureManager {
             maxStress: this.updateAllStress()
         };
     }
+
+    /**
+     * Serialize the structure to a plain object for saving/snapshot.
+     * @returns {Object} Serialized structure data
+     */
+    serialize() {
+        // Create node index map for segment/weight references
+        const nodeIndexMap = new Map();
+        this.nodes.forEach((node, index) => nodeIndexMap.set(node, index));
+
+        // Create segment index map for weight references
+        const segmentIndexMap = new Map();
+        this.segments.forEach((segment, index) => segmentIndexMap.set(segment, index));
+
+        return {
+            nodes: this.nodes.map(node => ({
+                x: node.x,
+                y: node.y,
+                fixed: node.fixed
+            })),
+            segments: this.segments.map(segment => ({
+                nodeAIndex: nodeIndexMap.get(segment.nodeA),
+                nodeBIndex: nodeIndexMap.get(segment.nodeB),
+                material: segment.material,
+                stiffness: segment.stiffness,
+                damping: segment.damping,
+                compressionOnly: segment.compressionOnly,
+                tensionOnly: segment.tensionOnly
+            })),
+            weights: this.weights.map(weight => ({
+                mass: weight.mass,
+                position: weight.position,
+                attachedToNodeIndex: weight.attachedToNode ? nodeIndexMap.get(weight.attachedToNode) : null,
+                attachedToSegmentIndex: weight.attachedToSegment ? segmentIndexMap.get(weight.attachedToSegment) : null
+            }))
+        };
+    }
+
+    /**
+     * Deserialize structure data and restore state.
+     * @param {Object} data - Serialized structure data
+     */
+    deserialize(data) {
+        // Clear current state
+        this.clear();
+
+        // Restore nodes
+        for (const nodeData of data.nodes) {
+            const node = this.addNode(nodeData.x, nodeData.y);
+            node.fixed = nodeData.fixed;
+        }
+
+        // Restore segments (referencing restored nodes by index)
+        for (const segmentData of data.segments) {
+            const nodeA = this.nodes[segmentData.nodeAIndex];
+            const nodeB = this.nodes[segmentData.nodeBIndex];
+            const segment = this.addSegment(nodeA, nodeB, segmentData.material);
+            if (segment) {
+                segment.stiffness = segmentData.stiffness;
+                segment.damping = segmentData.damping;
+                segment.compressionOnly = segmentData.compressionOnly;
+                segment.tensionOnly = segmentData.tensionOnly;
+            }
+        }
+
+        // Restore weights (referencing restored nodes/segments by index)
+        const weights = data.weights || [];
+        for (const weightData of weights) {
+            let target;
+            if (weightData.attachedToNodeIndex !== null) {
+                target = this.nodes[weightData.attachedToNodeIndex];
+            } else if (weightData.attachedToSegmentIndex !== null) {
+                target = this.segments[weightData.attachedToSegmentIndex];
+            }
+            if (target) {
+                this.addWeight(target, weightData.position, weightData.mass);
+            }
+        }
+    }
+
+    /**
+     * Create a snapshot of the current state (for simulation restore).
+     * @returns {Object} Snapshot data
+     */
+    snapshot() {
+        return this.serialize();
+    }
+
+    /**
+     * Restore from a snapshot (for simulation restore).
+     * @param {Object} snapshotData - Snapshot data from snapshot()
+     */
+    restore(snapshotData) {
+        this.deserialize(snapshotData);
+    }
 }

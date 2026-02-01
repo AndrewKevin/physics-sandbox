@@ -1044,3 +1044,152 @@ body::after {
 .scrubber:hover .scrubber-track::before {
     color: rgba(255, 255, 255, 0.5);
 }
+
+/* ==========================================
+   State Modal (Save/Load)
+   ========================================== */
+
+.state-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(13, 13, 26, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    backdrop-filter: blur(4px);
+}
+
+.state-modal {
+    background: var(--bg-darker);
+    border: 2px solid var(--accent-5);
+    border-radius: 16px;
+    width: min(90vw, 600px);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(123, 47, 255, 0.3);
+}
+
+.state-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(123, 47, 255, 0.3);
+}
+
+.state-modal-header h3 {
+    margin: 0;
+    font-family: var(--font-heading);
+    font-size: 18px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent-2);
+}
+
+.state-modal-close {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.state-modal-close:hover {
+    color: var(--accent-1);
+}
+
+.state-modal-body {
+    padding: 20px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.state-modal-textarea {
+    width: 100%;
+    height: 300px;
+    background: var(--bg-panel);
+    border: 2px solid rgba(123, 47, 255, 0.3);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 12px;
+    resize: none;
+    box-sizing: border-box;
+}
+
+.state-modal-textarea:focus {
+    outline: none;
+    border-color: var(--accent-2);
+    box-shadow: 0 0 12px rgba(0, 245, 212, 0.2);
+}
+
+.state-modal-textarea::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+}
+
+.state-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 20px;
+    border-top: 1px solid rgba(123, 47, 255, 0.3);
+}
+
+.state-modal-btn {
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-family: var(--font-heading);
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.state-modal-btn.primary {
+    background: var(--accent-2);
+    border: 2px solid var(--accent-2);
+    color: var(--bg-darker);
+}
+
+.state-modal-btn.primary:hover {
+    background: transparent;
+    color: var(--accent-2);
+    box-shadow: 0 0 15px rgba(0, 245, 212, 0.4);
+}
+
+.state-modal-btn.secondary {
+    background: transparent;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    color: var(--text-secondary);
+}
+
+.state-modal-btn.secondary:hover {
+    border-color: var(--accent-1);
+    color: var(--accent-1);
+}
+
+.state-modal-message {
+    text-align: center;
+    padding: 0 20px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    min-height: 20px;
+}
+
+.state-modal-message.success {
+    color: var(--stress-low);
+}
+
+.state-modal-message.error {
+    color: var(--accent-1);
+}
