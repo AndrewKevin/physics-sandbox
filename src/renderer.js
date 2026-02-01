@@ -134,18 +134,14 @@ export class Renderer {
             : { x: nodeB.x, y: nodeB.y };
 
         // Get color based on stress when simulating
-        let color = MATERIALS[segment.material].color;
+        const materialConfig = MATERIALS[segment.material];
+        let color = materialConfig.color;
         if (simulating) {
             color = segment.getStressColor();
         }
 
-        // Line width based on material
-        let lineWidth = 6;
-        if (segment.material === 'cable') {
-            lineWidth = 3;
-        } else if (segment.material === 'spring') {
-            lineWidth = 4;
-        }
+        // Line width from material config
+        const lineWidth = materialConfig.lineWidth;
 
         // Draw segment
         ctx.strokeStyle = color;

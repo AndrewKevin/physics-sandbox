@@ -3,7 +3,7 @@
  * Interactive physics simulation for exploring load and stress
  */
 
-import { StructureManager, Node, MATERIALS } from './structure.js';
+import { StructureManager, Node } from './structure.js';
 import { Renderer } from './renderer.js';
 import { UIController } from './ui.js';
 import { clampToCanvas, snapToGrid } from './position-utils.js';
@@ -247,12 +247,7 @@ class PhysicsSandbox {
         this.ui.setSegmentMaterialCallback((material) => {
             const seg = this.structure.selectedSegment;
             if (seg) {
-                seg.material = material;
-                // Update stiffness/damping from new material defaults
-                seg.stiffness = MATERIALS[material].stiffness;
-                seg.damping = MATERIALS[material].damping;
-                seg.tensionOnly = MATERIALS[material].tensionOnly;
-                seg.compressionOnly = MATERIALS[material].compressionOnly;
+                seg.setMaterial(material);
                 this.ui.updateSelection({ segment: seg });
                 this.markStructureDirty();
             }
@@ -315,6 +310,10 @@ class PhysicsSandbox {
             getGridSize: () => Renderer.GRID_SIZE,
             onStatsUpdate: () => {
                 this.updateStats();
+                this.markStructureDirty();
+            },
+            onMaterialChange: (segment, material) => {
+                segment.setMaterial(material);
                 this.markStructureDirty();
             }
         });

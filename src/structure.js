@@ -3,6 +3,10 @@
  */
 
 import Matter from 'matter-js';
+import { MATERIALS } from './materials.js';
+
+// Re-export MATERIALS for backward compatibility
+export { MATERIALS };
 
 // Stress colours (must match CSS variables in styles.css)
 export const STRESS_COLORS = {
@@ -10,34 +14,6 @@ export const STRESS_COLORS = {
     medium: '#FFE600',    // Yellow - warning
     high: '#FF6B35',      // Orange - danger
     critical: '#FF3AF2'   // Magenta - failure
-};
-
-// Material definitions
-export const MATERIALS = {
-    beam: {
-        name: 'Rigid Beam',
-        stiffness: 0.9,      // Slightly soft to show deformation
-        damping: 0.1,
-        color: '#00F5D4',
-        compressionOnly: false,
-        tensionOnly: false
-    },
-    spring: {
-        name: 'Spring',
-        stiffness: 0.2,      // Bouncy
-        damping: 0.05,
-        color: '#FFE600',
-        compressionOnly: false,
-        tensionOnly: false
-    },
-    cable: {
-        name: 'Cable',
-        stiffness: 0.7,      // Slightly stretchy
-        damping: 0.02,
-        color: '#FF6B35',
-        compressionOnly: false,
-        tensionOnly: true    // Cables only resist tension
-    }
 };
 
 // Node class
@@ -153,6 +129,21 @@ export class Segment {
         } else {
             return STRESS_COLORS.critical;
         }
+    }
+
+    /**
+     * Apply a material to this segment, updating all physics properties.
+     * @param {string} material - Material key from MATERIALS
+     */
+    setMaterial(material) {
+        const mat = MATERIALS[material];
+        if (!mat) return;
+
+        this.material = material;
+        this.stiffness = mat.stiffness;
+        this.damping = mat.damping;
+        this.compressionOnly = mat.compressionOnly;
+        this.tensionOnly = mat.tensionOnly;
     }
 }
 

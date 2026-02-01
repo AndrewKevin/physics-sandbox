@@ -8,6 +8,7 @@ import { WeightPopup } from './weight-popup.js';
 import { NodePopup } from './node-popup.js';
 import { MultiNodePopup } from './multi-node-popup.js';
 import { getPositionOnSegment, snapToGrid, clampToCanvas } from './position-utils.js';
+import { MATERIALS, MATERIAL_ORDER } from './materials.js';
 
 export class ContextMenuController {
     /**
@@ -19,6 +20,7 @@ export class ContextMenuController {
      * @param {Function} options.getNodeRadius - Returns node radius
      * @param {Function} [options.getGridSize] - Returns grid size in pixels (default 20)
      * @param {Function} [options.onStatsUpdate] - Called when stats need updating
+     * @param {Function} [options.onMaterialChange] - Called when segment material is changed (segment, newMaterial)
      */
     constructor(options = {}) {
         this.structure = options.structure;
@@ -28,6 +30,7 @@ export class ContextMenuController {
         this.getNodeRadius = options.getNodeRadius ?? (() => 12);
         this.getGridSize = options.getGridSize ?? (() => 20);
         this.onStatsUpdate = options.onStatsUpdate ?? (() => {});
+        this.onMaterialChange = options.onMaterialChange ?? (() => {});
 
         this.contextMenu = null;
         this.weightPopup = new WeightPopup();
@@ -211,7 +214,24 @@ export class ContextMenuController {
      * @returns {Array} Menu items
      */
     getSegmentMenuItems(segment, clickX, clickY) {
+        // Build material selection items with check mark for current
+        const materialItems = MATERIAL_ORDER.map(key => {
+            const mat = MATERIALS[key];
+            const isCurrent = segment.material === key;
+            const check = isCurrent ? '✓' : ' ';
+            return {
+                label: `${check}  ${mat.label}`,
+                callback: () => {
+                    if (!isCurrent && this.structure.segments.includes(segment)) {
+                        this.onMaterialChange(segment, key);
+                    }
+                }
+            };
+        });
+
         return [
+            ...materialItems,
+            'hr',
             {
                 label: '⚙️  Edit Properties',
                 callback: () => {

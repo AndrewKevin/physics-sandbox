@@ -3,14 +3,14 @@
  * Pure functions for localStorage persistence of sandbox state and view settings.
  */
 
+import { getMaterialKeys, getDefaultMaterial } from './materials.js';
+
 export const STORAGE_KEYS = {
     VIEW_SETTINGS: 'physics-sandbox:view-settings',
     STRUCTURE: 'physics-sandbox:structure'
 };
 
 const CURRENT_VERSION = 1;
-const VALID_MATERIALS = ['beam', 'spring', 'cable'];
-const DEFAULT_MATERIAL = 'beam';
 
 /**
  * Check if localStorage is available and working.
@@ -75,9 +75,10 @@ export function loadViewSettings(storage) {
  */
 function migrateViewSettings(data) {
     // Validate material, fall back to default if invalid
-    const material = VALID_MATERIALS.includes(data.currentMaterial)
+    const validMaterials = getMaterialKeys();
+    const material = validMaterials.includes(data.currentMaterial)
         ? data.currentMaterial
-        : DEFAULT_MATERIAL;
+        : getDefaultMaterial();
 
     return {
         currentMaterial: material,

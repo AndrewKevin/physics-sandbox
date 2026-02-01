@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { StructureManager, Node, Segment, Weight } from './structure.js';
+import { StructureManager, Node, Segment, Weight, MATERIALS } from './structure.js';
 
 describe('StructureManager - splitSegment', () => {
     let structure;
@@ -685,6 +685,50 @@ describe('StructureManager - Multi-select', () => {
             const weights = structure.getWeightsForSegments([segment]);
 
             expect(weights).toHaveLength(0);
+        });
+    });
+});
+
+describe('Segment', () => {
+    describe('setMaterial', () => {
+        it('should update material and all physics properties', () => {
+            const nodeA = new Node(0, 0);
+            const nodeB = new Node(100, 0);
+            const segment = new Segment(nodeA, nodeB, 'beam');
+
+            segment.setMaterial('cable');
+
+            expect(segment.material).toBe('cable');
+            expect(segment.stiffness).toBe(MATERIALS.cable.stiffness);
+            expect(segment.damping).toBe(MATERIALS.cable.damping);
+            expect(segment.compressionOnly).toBe(MATERIALS.cable.compressionOnly);
+            expect(segment.tensionOnly).toBe(MATERIALS.cable.tensionOnly);
+        });
+
+        it('should do nothing for invalid material', () => {
+            const nodeA = new Node(0, 0);
+            const nodeB = new Node(100, 0);
+            const segment = new Segment(nodeA, nodeB, 'beam');
+            const originalStiffness = segment.stiffness;
+
+            segment.setMaterial('nonexistent');
+
+            expect(segment.material).toBe('beam');
+            expect(segment.stiffness).toBe(originalStiffness);
+        });
+
+        it('should work for all defined materials', () => {
+            const nodeA = new Node(0, 0);
+            const nodeB = new Node(100, 0);
+
+            for (const materialKey of Object.keys(MATERIALS)) {
+                const segment = new Segment(nodeA, nodeB, 'beam');
+                segment.setMaterial(materialKey);
+
+                expect(segment.material).toBe(materialKey);
+                expect(segment.stiffness).toBe(MATERIALS[materialKey].stiffness);
+                expect(segment.damping).toBe(MATERIALS[materialKey].damping);
+            }
         });
     });
 });
