@@ -89,11 +89,14 @@ describe('InputController', () => {
             expect(eventTypes).toContain('touchend');
         });
 
-        it('should bind keyboard and resize events to window', () => {
+        it('should bind keyboard, resize, and mouse tracking events to window', () => {
             const eventTypes = windowAddEventListener.mock.calls.map(call => call[0]);
 
             expect(eventTypes).toContain('keydown');
+            expect(eventTypes).toContain('keyup');
             expect(eventTypes).toContain('resize');
+            expect(eventTypes).toContain('mousemove');
+            expect(eventTypes).toContain('mouseup');
         });
     });
 
@@ -233,7 +236,7 @@ describe('InputController', () => {
             expect(options.onRightClick).not.toHaveBeenCalled();
         });
 
-        it('should cancel selection box when mouse leaves canvas', () => {
+        it('should not cancel selection box when mouse leaves canvas', () => {
             const mockSelectionBox = {
                 isTracking: true,
                 cancelSelection: vi.fn()
@@ -244,7 +247,8 @@ describe('InputController', () => {
             controller = new InputController(canvas, options);
             controller.onMouseLeave({});
 
-            expect(mockSelectionBox.cancelSelection).toHaveBeenCalled();
+            // Selection continues outside canvas - handled by window events
+            expect(mockSelectionBox.cancelSelection).not.toHaveBeenCalled();
         });
 
         it('should not error when mouse leaves canvas without selection box', () => {
@@ -252,19 +256,6 @@ describe('InputController', () => {
             controller = new InputController(canvas, options);
 
             expect(() => controller.onMouseLeave({})).not.toThrow();
-        });
-
-        it('should not cancel selection box on mouse leave if not tracking', () => {
-            const mockSelectionBox = {
-                isTracking: false,
-                cancelSelection: vi.fn()
-            };
-            options.getSelectionBox = vi.fn(() => mockSelectionBox);
-            controller = new InputController(canvas, options);
-
-            controller.onMouseLeave({});
-
-            expect(mockSelectionBox.cancelSelection).not.toHaveBeenCalled();
         });
     });
 
@@ -388,6 +379,123 @@ describe('InputController', () => {
             });
 
             expect(options.onDelete).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('Window mouse handlers (for outside canvas)', () => {
+        let outsideTarget;
+
+        beforeEach(() => {
+            // Mock target representing an element outside canvas
+            outsideTarget = { tagName: 'BODY' };
+        });
+
+        it('should complete selection box on window mouseup', () => {
+            const mockSelectionBox = {
+                isTracking: true,
+                endSelection: vi.fn()
+            };
+            options.getSelectionBox = vi.fn(() => mockSelectionBox);
+            controller = new InputController(canvas, options);
+
+            // Simulate mouseup outside canvas (target is not canvas)
+            controller.onWindowMouseUp({ button: 0, target: outsideTarget });
+
+            expect(mockSelectionBox.endSelection).toHaveBeenCalled();
+        });
+
+        it('should complete drag on window mouseup', () => {
+            mockDrag.isTracking = true;
+            controller = new InputController(canvas, options);
+
+            controller.onWindowMouseUp({ button: 0, target: outsideTarget });
+
+            expect(mockDrag.endDrag).toHaveBeenCalled();
+        });
+
+        it('should not handle window mouseup if event is from canvas', () => {
+            const mockSelectionBox = {
+                isTracking: true,
+                endSelection: vi.fn()
+            };
+            options.getSelectionBox = vi.fn(() => mockSelectionBox);
+            controller = new InputController(canvas, options);
+
+            // Event target is the canvas - should be handled by canvas mouseup
+            controller.onWindowMouseUp({ button: 0, target: canvas });
+
+            expect(mockSelectionBox.endSelection).not.toHaveBeenCalled();
+        });
+
+        it('should update selection box on window mousemove', () => {
+            const mockSelectionBox = {
+                isTracking: true,
+                updateSelection: vi.fn(() => ({ isSelecting: true }))
+            };
+            options.getSelectionBox = vi.fn(() => mockSelectionBox);
+            controller = new InputController(canvas, options);
+
+            controller.onWindowMouseMove({ clientX: 200, clientY: 200, target: outsideTarget });
+
+            expect(mockSelectionBox.updateSelection).toHaveBeenCalled();
+        });
+
+        it('should update drag on window mousemove', () => {
+            mockDrag.isTracking = true;
+            mockDrag.updateDrag.mockReturnValue({ isDragging: true });
+            controller = new InputController(canvas, options);
+
+            controller.onWindowMouseMove({ clientX: 200, clientY: 200, target: outsideTarget });
+
+            expect(mockDrag.updateDrag).toHaveBeenCalled();
+        });
+
+        it('should not handle window mousemove if event is from canvas', () => {
+            const mockSelectionBox = {
+                isTracking: true,
+                updateSelection: vi.fn(() => ({ isSelecting: true }))
+            };
+            options.getSelectionBox = vi.fn(() => mockSelectionBox);
+            controller = new InputController(canvas, options);
+
+            // Event target is the canvas - handled by canvas mousemove
+            controller.onWindowMouseMove({ clientX: 200, clientY: 200, target: canvas });
+
+            expect(mockSelectionBox.updateSelection).not.toHaveBeenCalled();
+        });
+
+        it('should not process window mousemove if not tracking anything', () => {
+            mockDrag.isTracking = false;
+            options.getSelectionBox = vi.fn(() => ({ isTracking: false }));
+            controller = new InputController(canvas, options);
+
+            // Should return early without calling getMousePos extensively
+            controller.onWindowMouseMove({ clientX: 200, clientY: 200, target: outsideTarget });
+
+            expect(mockDrag.updateDrag).not.toHaveBeenCalled();
+        });
+
+        it('should set cursor to crosshair during selection outside canvas', () => {
+            const mockSelectionBox = {
+                isTracking: true,
+                updateSelection: vi.fn(() => ({ isSelecting: true }))
+            };
+            options.getSelectionBox = vi.fn(() => mockSelectionBox);
+            controller = new InputController(canvas, options);
+
+            controller.onWindowMouseMove({ clientX: 200, clientY: 200, target: outsideTarget });
+
+            expect(canvas.style.cursor).toBe('crosshair');
+        });
+
+        it('should set cursor to grabbing during drag outside canvas', () => {
+            mockDrag.isTracking = true;
+            mockDrag.updateDrag.mockReturnValue({ isDragging: true });
+            controller = new InputController(canvas, options);
+
+            controller.onWindowMouseMove({ clientX: 200, clientY: 200, target: outsideTarget });
+
+            expect(canvas.style.cursor).toBe('grabbing');
         });
     });
 });

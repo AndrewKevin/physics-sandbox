@@ -62,6 +62,10 @@ export class InputController {
             if (e.key === 'Shift') this.shiftHeld = false;
         });
 
+        // Window-level mouse events for tracking outside canvas
+        window.addEventListener('mousemove', (e) => this.onWindowMouseMove(e));
+        window.addEventListener('mouseup', (e) => this.onWindowMouseUp(e));
+
         // Window resize
         window.addEventListener('resize', () => this.options.onWindowResize?.());
     }
@@ -204,10 +208,63 @@ export class InputController {
     }
 
     onMouseLeave(e) {
-        // Cancel selection box when cursor leaves canvas
+        // Selection box continues outside canvas - handled by window events
+        // Node dragging also continues outside canvas
+    }
+
+    /**
+     * Handle mouse movement outside the canvas.
+     * Continues selection box and drag operations.
+     */
+    onWindowMouseMove(e) {
+        // Skip if event originated from canvas (handled by onMouseMove)
+        if (e.target === this.canvas) return;
+
+        const drag = this.options.getDrag();
         const selectionBox = this.options.getSelectionBox?.();
+
+        // Only process if we're actively tracking something
+        if (!drag.isTracking && !selectionBox?.isTracking) return;
+
+        const pos = this.getMousePos(e);
+
+        // Update selection box position
         if (selectionBox?.isTracking) {
-            selectionBox.cancelSelection();
+            const result = selectionBox.updateSelection(pos);
+            if (result.isSelecting) {
+                this.canvas.style.cursor = 'crosshair';
+            }
+        }
+
+        // Update drag position
+        if (drag.isTracking) {
+            const result = drag.updateDrag(pos);
+            if (result.isDragging) {
+                this.canvas.style.cursor = 'grabbing';
+            }
+        }
+    }
+
+    /**
+     * Handle mouse up outside the canvas.
+     * Completes selection box and drag operations.
+     */
+    onWindowMouseUp(e) {
+        // Skip if event originated from canvas (handled by onMouseUp)
+        if (e.target === this.canvas) return;
+        if (e.button !== 0) return;
+
+        const drag = this.options.getDrag();
+        const selectionBox = this.options.getSelectionBox?.();
+
+        // End drag if active
+        if (drag.isTracking) {
+            drag.endDrag();
+        }
+
+        // End selection box if tracking
+        if (selectionBox?.isTracking) {
+            selectionBox.endSelection();
         }
     }
 
