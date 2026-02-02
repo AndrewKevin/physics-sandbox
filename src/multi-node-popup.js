@@ -13,6 +13,18 @@ export class MultiNodePopup extends PopupBase {
     }
 
     /**
+     * Show popup for multiple nodes. Non-editable nodes are filtered out.
+     * @param {Array} nodes - Array of nodes to edit
+     * @param {number} x - Screen X position
+     * @param {number} y - Screen Y position
+     */
+    show(nodes, x, y) {
+        const editableNodes = nodes.filter(n => n.isEditable);
+        if (editableNodes.length === 0) return;
+        super.show(editableNodes, x, y);
+    }
+
+    /**
      * Get the nodes being edited.
      * @returns {Array|null}
      */
@@ -51,6 +63,7 @@ export class MultiNodePopup extends PopupBase {
 
     /**
      * Set property on all nodes.
+     * Non-editable nodes are already filtered out in show().
      */
     setTargetProperty(property, value) {
         if (!this.target || !Array.isArray(this.target)) return;
@@ -94,7 +107,7 @@ export class MultiNodePopup extends PopupBase {
     }
 
     bindEvents() {
-        // Pin toggle
+        // Pin toggle - all nodes in this.target are editable (filtered in show())
         const pinRow = this.popup.querySelector('[data-action="pin"]');
         pinRow?.addEventListener('click', () => {
             const allPinned = this.target.every(n => n.fixed);

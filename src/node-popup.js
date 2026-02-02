@@ -14,6 +14,17 @@ export class NodePopup extends PopupBase {
     }
 
     /**
+     * Show popup for a node. Non-editable nodes (e.g., ground anchors) are skipped.
+     * @param {Object} node - The node to edit
+     * @param {number} x - Screen X position
+     * @param {number} y - Screen Y position
+     */
+    show(node, x, y) {
+        if (!node.isEditable) return;
+        super.show(node, x, y);
+    }
+
+    /**
      * Get the node being edited.
      * @returns {Object|null}
      */

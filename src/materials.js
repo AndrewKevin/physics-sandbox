@@ -106,9 +106,12 @@ export const MATERIALS = {
 
         // Visual properties
         color: '#FF3AF2',    // Magenta (accent-1)
-        lineWidth: 5,
-        pattern: 'solid',
-        patternConfig: {}
+        lineWidth: 2,        // Thinner for multi-strand effect
+        pattern: 'fibrous',
+        patternConfig: {
+            strands: 3,      // Number of parallel lines
+            spacing: 4       // Pixels between strands (wider for visibility)
+        }
     }
 };
 

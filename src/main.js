@@ -211,6 +211,21 @@ class PhysicsSandbox {
 
     initStructure() {
         this.structure = new StructureManager();
+        this.createGroundAnchors();
+    }
+
+    /**
+     * Create ground anchor points along the floor.
+     * These are fixed nodes that users can connect to but cannot edit.
+     */
+    createGroundAnchors() {
+        const spacing = 100; // Pixels between anchors
+        const anchorCount = Math.floor(this.renderer.width / spacing) + 1;
+
+        for (let i = 0; i < anchorCount; i++) {
+            const x = i * spacing;
+            this.structure.addGroundAnchor(x, this.groundY);
+        }
     }
 
     initPhysics() {
@@ -236,6 +251,7 @@ class PhysicsSandbox {
         // Wire up save/load callbacks
         this.ui.setSaveCallback(() => this.saveState());
         this.ui.setLoadCallback(() => this.loadState());
+        this.ui.setIsStructureEmptyCallback(() => this.structure.isEmpty());
 
         // Wire up bulk action callbacks for multi-select
         this.ui.setBulkActionCallback(() => {
@@ -367,6 +383,10 @@ class PhysicsSandbox {
         const structureData = loadStructure(localStorage);
         if (structureData) {
             this.structure.deserialize(structureData);
+            // Only create ground anchors if none exist (backward compatibility)
+            if (this.structure.getGroundAnchors().length === 0) {
+                this.createGroundAnchors();
+            }
             this.updateStats();
         }
     }
@@ -694,6 +714,7 @@ class PhysicsSandbox {
     clear() {
         this.stopSimulation();
         this.structure.clear();
+        this.createGroundAnchors();  // Recreate ground anchors
         this.hover.reset();
         this.drag.reset();
         this.clipboard.reset();
@@ -734,6 +755,10 @@ class PhysicsSandbox {
 
         this.stateModal.showLoad((state) => {
             this.structure.deserialize(state);
+            // Only create ground anchors if none exist (backward compatibility)
+            if (this.structure.getGroundAnchors().length === 0) {
+                this.createGroundAnchors();
+            }
             this.preSimulationSnapshot = null;
             this.hover.reset();
             this.drag.reset();

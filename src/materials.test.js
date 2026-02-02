@@ -72,7 +72,7 @@ describe('Materials Configuration', () => {
                 it('should have valid visual values', () => {
                     expect(material.color).toMatch(/^#[0-9A-Fa-f]{6}$/);
                     expect(material.lineWidth).toBeGreaterThan(0);
-                    expect(['solid', 'dashed', 'zigzag']).toContain(material.pattern);
+                    expect(['solid', 'dashed', 'zigzag', 'fibrous']).toContain(material.pattern);
                     expect(typeof material.patternConfig).toBe('object');
                 });
             });

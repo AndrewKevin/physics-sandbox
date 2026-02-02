@@ -38,8 +38,9 @@ export class SegmentPopup extends PopupBase {
      * @param {Object} clickPos - Canvas position { x, y } where clicked
      */
     show(segment, clientX, clientY, clickPos) {
-        this.clickPos = clickPos;
         super.show(segment, clientX, clientY);
+        // Set clickPos AFTER super.show() because super.show() calls close() which resets it
+        this.clickPos = clickPos;
     }
 
     getClassName() {

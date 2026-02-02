@@ -49,13 +49,21 @@ export class JointController {
                     ? this.calculateTorque(angle, restAngle, node.angularStiffness)
                     : 0;
 
+                // Load path stress: min of both segment stresses
+                // Shows where load is being TRANSFERRED through the joint
+                const loadPathStress = Math.min(
+                    segments[i].stress ?? 0,
+                    segments[j].stress ?? 0
+                );
+
                 pairs.push({
                     segmentA: segments[i],
                     segmentB: segments[j],
                     angle,
                     restAngle,
                     torque,
-                    normalisedTorque: Math.min(torque * 10, 1)  // Amplify for visibility
+                    normalisedTorque: Math.min(torque * 10, 1),  // Legacy: deviation-based
+                    loadPathStress  // Stress-based load path indicator
                 });
             }
         }

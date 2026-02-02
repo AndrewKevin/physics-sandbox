@@ -122,7 +122,7 @@ describe('InputController', () => {
 
     describe('Mouse handlers', () => {
         it('should begin potential drag when clicking on a node', () => {
-            const mockNode = { id: 1 };
+            const mockNode = { id: 1, isEditable: true };
             options.findNodeAt.mockReturnValue(mockNode);
 
             controller.onMouseDown({ button: 0, clientX: 100, clientY: 100 });
@@ -261,7 +261,7 @@ describe('InputController', () => {
 
     describe('Touch handlers', () => {
         it('should begin potential drag on touch start over node', () => {
-            const mockNode = { id: 1 };
+            const mockNode = { id: 1, isEditable: true };
             options.findNodeAt.mockReturnValue(mockNode);
             const event = {
                 touches: [{ clientX: 100, clientY: 100 }],

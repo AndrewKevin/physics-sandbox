@@ -57,7 +57,7 @@ export class UIController {
             button.dataset.material = key;
 
             button.innerHTML = `
-                <span class="material-preview" style="background-color: ${mat.color}"></span>
+                <span class="material-preview material-preview--${key}"></span>
                 <span class="material-text">
                     <span class="material-name">${mat.label}</span>
                     <span class="material-desc">${mat.description}</span>
@@ -94,7 +94,7 @@ export class UIController {
         });
 
         this.elements.simClear?.addEventListener('click', () => {
-            this.onClear();
+            this.confirmClear();
         });
 
         // State save/load
@@ -137,9 +137,31 @@ export class UIController {
                 break;
             case 'c':
                 if (e.ctrlKey || e.metaKey) return; // Don't intercept browser copy
-                this.onClear();
+                this.confirmClear();
                 break;
         }
+    }
+
+    /**
+     * Show confirmation dialog before clearing, if there's anything to clear.
+     */
+    confirmClear() {
+        // Check if there's anything to clear
+        if (this.isStructureEmpty?.()) {
+            return; // Nothing to clear
+        }
+
+        if (confirm('Clear all nodes, segments, and weights?')) {
+            this.onClear();
+        }
+    }
+
+    /**
+     * Set callback to check if structure is empty.
+     * @param {Function} callback - Returns true if structure is empty
+     */
+    setIsStructureEmptyCallback(callback) {
+        this.isStructureEmpty = callback;
     }
 
     setMaterial(material) {
@@ -184,55 +206,81 @@ export class UIController {
 
         // Handle multi-node selection
         if (nodes && nodes.length > 1) {
-            const pinnedCount = nodes.filter(n => n.fixed).length;
-            const totalMass = nodes.reduce((sum, n) => sum + n.mass, 0);
-            const avgMass = totalMass / nodes.length;
-            const allPinned = pinnedCount === nodes.length;
+            // Filter to editable nodes for stats and controls
+            const editableNodes = nodes.filter(n => n.isEditable);
+            const anchorCount = nodes.length - editableNodes.length;
+
+            const pinnedCount = editableNodes.filter(n => n.fixed).length;
+            const totalMass = editableNodes.reduce((sum, n) => sum + n.mass, 0);
+            const avgMass = editableNodes.length > 0 ? totalMass / editableNodes.length : 0;
+            const allPinned = editableNodes.length > 0 && pinnedCount === editableNodes.length;
+
+            // Build anchor info line if any anchors selected
+            const anchorInfo = anchorCount > 0
+                ? `<p class="hint-text">${anchorCount} anchor${anchorCount > 1 ? 's' : ''} (fixed)</p>`
+                : '';
+
+            // Only show edit controls if there are editable nodes
+            const editControls = editableNodes.length > 0 ? `
+                <p>Pinned: ${pinnedCount} / ${editableNodes.length}</p>
+                <p>Total mass: ${totalMass.toFixed(1)} kg</p>
+                <div class="bulk-mass-control">
+                    <label for="bulk-mass">Set mass (each):</label>
+                    <div class="bulk-mass-input-row">
+                        <input type="number" id="bulk-mass" min="0.1" max="50" step="0.5" value="${avgMass.toFixed(1)}">
+                        <span>kg</span>
+                        <button class="bulk-action-btn small" id="bulk-mass-apply">Apply</button>
+                    </div>
+                </div>
+                <div class="multi-select-actions">
+                    <button class="bulk-action-btn" id="bulk-pin">
+                        ${allPinned ? 'Unpin All' : 'Pin All'}
+                    </button>
+                    <button class="bulk-action-btn danger" id="bulk-delete">
+                        Delete All
+                    </button>
+                </div>
+                <p class="hint-text">Drag any node to move all</p>
+            ` : '';
 
             if (this.elements.selectionInfo) {
                 this.elements.selectionInfo.innerHTML = `
                     <p><strong>${nodes.length} nodes selected</strong></p>
-                    <p>Pinned: ${pinnedCount} / ${nodes.length}</p>
-                    <p>Total mass: ${totalMass.toFixed(1)} kg</p>
-                    <div class="bulk-mass-control">
-                        <label for="bulk-mass">Set mass (each):</label>
-                        <div class="bulk-mass-input-row">
-                            <input type="number" id="bulk-mass" min="0.1" max="50" step="0.5" value="${avgMass.toFixed(1)}">
-                            <span>kg</span>
-                            <button class="bulk-action-btn small" id="bulk-mass-apply">Apply</button>
-                        </div>
-                    </div>
-                    <div class="multi-select-actions">
-                        <button class="bulk-action-btn" id="bulk-pin">
-                            ${allPinned ? 'Unpin All' : 'Pin All'}
-                        </button>
-                        <button class="bulk-action-btn danger" id="bulk-delete">
-                            Delete All
-                        </button>
-                    </div>
-                    <p class="hint-text">Drag any node to move all</p>
+                    ${anchorInfo}
+                    ${editControls}
                 `;
             }
-            this.bindMultiSelectActions(nodes);
+            if (editableNodes.length > 0) {
+                this.bindMultiSelectActions(editableNodes);
+            }
             return;
         }
 
         // Update selection info (single element)
         if (node) {
             if (this.elements.selectionInfo) {
-                // Format joint stiffness nicely
-                const stiffnessLabel = node.angularStiffness === 0 ? 'Free'
-                    : node.angularStiffness === 1 ? 'Locked'
-                    : node.angularStiffness.toFixed(2);
+                if (!node.isEditable) {
+                    // Non-editable node (e.g., ground anchor) - limited info
+                    this.elements.selectionInfo.innerHTML = `
+                        <p><strong>Ground Anchor</strong></p>
+                        <p>Position: (${Math.round(node.x)}, ${Math.round(node.y)})</p>
+                        <p class="hint-text">Click another node to connect</p>
+                    `;
+                } else {
+                    // Editable node - full info
+                    const stiffnessLabel = node.angularStiffness === 0 ? 'Free'
+                        : node.angularStiffness === 1 ? 'Locked'
+                        : node.angularStiffness.toFixed(2);
 
-                this.elements.selectionInfo.innerHTML = `
-                    <p><strong>Node #${node.id}</strong></p>
-                    <p>Position: (${Math.round(node.x)}, ${Math.round(node.y)})</p>
-                    <p>Fixed: ${node.fixed ? 'Yes' : 'No'}</p>
-                    <p>Mass: ${node.mass} kg</p>
-                    <p>Joint Stiffness: ${stiffnessLabel}</p>
-                    <p class="hint-text">Right-click to edit</p>
-                `;
+                    this.elements.selectionInfo.innerHTML = `
+                        <p><strong>Node #${node.id}</strong></p>
+                        <p>Position: (${Math.round(node.x)}, ${Math.round(node.y)})</p>
+                        <p>Fixed: ${node.fixed ? 'Yes' : 'No'}</p>
+                        <p>Mass: ${node.mass} kg</p>
+                        <p>Joint Stiffness: ${stiffnessLabel}</p>
+                        <p class="hint-text">Right-click to edit</p>
+                    `;
+                }
             }
         } else if (segment) {
             if (this.elements.selectionInfo) {
@@ -300,6 +348,11 @@ export class UIController {
             } else {
                 this.elements.statStress.style.color = '#FF3AF2';  // Magenta - critical
             }
+        }
+
+        // Hide hint once user has added content
+        if (this.elements.hint) {
+            this.elements.hint.style.display = stats.hasUserContent ? 'none' : 'inline-block';
         }
     }
 

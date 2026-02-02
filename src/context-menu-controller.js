@@ -171,7 +171,12 @@ export class ContextMenuController {
 
         this.segmentPopup.onAddNode = (segment, clickPos) => {
             if (this.structure.segments.includes(segment)) {
-                const position = getPositionOnSegment(segment, clickPos.x, clickPos.y);
+                // Use click position if available, otherwise use segment midpoint
+                const pos = clickPos ?? {
+                    x: (segment.nodeA.x + segment.nodeB.x) / 2,
+                    y: (segment.nodeA.y + segment.nodeB.y) / 2
+                };
+                const position = getPositionOnSegment(segment, pos.x, pos.y);
                 const { node } = this.structure.splitSegment(segment, position);
                 this.structure.selectNode(node);
                 this.ui.updateSelection({ node });
@@ -181,7 +186,12 @@ export class ContextMenuController {
 
         this.segmentPopup.onAddWeight = (segment, clickPos) => {
             if (this.structure.segments.includes(segment)) {
-                const position = getPositionOnSegment(segment, clickPos.x, clickPos.y);
+                // Use click position if available, otherwise use segment midpoint
+                const pos = clickPos ?? {
+                    x: (segment.nodeA.x + segment.nodeB.x) / 2,
+                    y: (segment.nodeA.y + segment.nodeB.y) / 2
+                };
+                const position = getPositionOnSegment(segment, pos.x, pos.y);
                 const weight = this.structure.addWeight(segment, position);
                 this.structure.selectWeight(weight);
                 this.ui.updateSelection({ weight });

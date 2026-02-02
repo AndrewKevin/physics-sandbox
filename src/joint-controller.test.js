@@ -256,3 +256,94 @@ describe('JointController - computeJointData', () => {
     });
 });
 
+describe('JointController - Load Path Stress', () => {
+    let controller;
+
+    beforeEach(() => {
+        controller = new JointController();
+    });
+
+    it('should include loadPathStress in angle pair data', () => {
+        const node = { x: 0, y: 0, angularStiffness: 0.5 };
+        const segA = { nodeA: node, nodeB: { x: 100, y: 0 }, stress: 0.4 };
+        const segB = { nodeA: node, nodeB: { x: 0, y: 100 }, stress: 0.6 };
+
+        const mockStructure = {
+            nodes: [node],
+            getSegmentsAtNode: (n) => n === node ? [segA, segB] : []
+        };
+
+        const jointData = controller.computeJointData(mockStructure, false);
+        const pair = jointData.get(node).anglePairs[0];
+
+        expect(pair).toHaveProperty('loadPathStress');
+    });
+
+    it('should calculate loadPathStress as min of both segment stresses', () => {
+        const node = { x: 0, y: 0, angularStiffness: 0.5 };
+        const segA = { nodeA: node, nodeB: { x: 100, y: 0 }, stress: 0.3 };
+        const segB = { nodeA: node, nodeB: { x: 0, y: 100 }, stress: 0.7 };
+
+        const mockStructure = {
+            nodes: [node],
+            getSegmentsAtNode: (n) => n === node ? [segA, segB] : []
+        };
+
+        const jointData = controller.computeJointData(mockStructure, false);
+        const pair = jointData.get(node).anglePairs[0];
+
+        // min(0.3, 0.7) = 0.3
+        expect(pair.loadPathStress).toBe(0.3);
+    });
+
+    it('should return 0 loadPathStress when one segment has no stress', () => {
+        const node = { x: 0, y: 0, angularStiffness: 0.5 };
+        const segA = { nodeA: node, nodeB: { x: 100, y: 0 }, stress: 0.5 };
+        const segB = { nodeA: node, nodeB: { x: 0, y: 100 }, stress: 0 };
+
+        const mockStructure = {
+            nodes: [node],
+            getSegmentsAtNode: (n) => n === node ? [segA, segB] : []
+        };
+
+        const jointData = controller.computeJointData(mockStructure, false);
+        const pair = jointData.get(node).anglePairs[0];
+
+        // min(0.5, 0) = 0
+        expect(pair.loadPathStress).toBe(0);
+    });
+
+    it('should default to 0 when segments have no stress property', () => {
+        const node = { x: 0, y: 0, angularStiffness: 0.5 };
+        const segA = { nodeA: node, nodeB: { x: 100, y: 0 } };  // No stress
+        const segB = { nodeA: node, nodeB: { x: 0, y: 100 } };  // No stress
+
+        const mockStructure = {
+            nodes: [node],
+            getSegmentsAtNode: (n) => n === node ? [segA, segB] : []
+        };
+
+        const jointData = controller.computeJointData(mockStructure, false);
+        const pair = jointData.get(node).anglePairs[0];
+
+        expect(pair.loadPathStress).toBe(0);
+    });
+
+    it('should show high loadPathStress when both segments are highly stressed', () => {
+        const node = { x: 0, y: 0, angularStiffness: 0.5 };
+        const segA = { nodeA: node, nodeB: { x: 100, y: 0 }, stress: 0.8 };
+        const segB = { nodeA: node, nodeB: { x: 0, y: 100 }, stress: 0.9 };
+
+        const mockStructure = {
+            nodes: [node],
+            getSegmentsAtNode: (n) => n === node ? [segA, segB] : []
+        };
+
+        const jointData = controller.computeJointData(mockStructure, false);
+        const pair = jointData.get(node).anglePairs[0];
+
+        // min(0.8, 0.9) = 0.8 — both segments carrying load = load path
+        expect(pair.loadPathStress).toBe(0.8);
+    });
+});
+

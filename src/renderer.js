@@ -172,6 +172,10 @@ export class Renderer {
         if (segment.material === 'spring') {
             // Draw spring as zigzag
             this.drawSpringLine(ctx, posA.x, posA.y, posB.x, posB.y);
+        } else if (segment.material === 'muscle') {
+            // Draw muscle as fibrous parallel strands
+            const config = materialConfig.patternConfig ?? { strands: 3, spacing: 2 };
+            this.drawMuscleLine(ctx, posA.x, posA.y, posB.x, posB.y, config);
         } else {
             ctx.moveTo(posA.x, posA.y);
             ctx.lineTo(posB.x, posB.y);
@@ -246,8 +250,51 @@ export class Renderer {
         ctx.restore();
     }
 
+    /**
+     * Draw a fibrous/striated muscle line with multiple parallel strands.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} x1 - Start X
+     * @param {number} y1 - Start Y
+     * @param {number} x2 - End X
+     * @param {number} y2 - End Y
+     * @param {Object} config - Pattern config { strands, spacing }
+     */
+    drawMuscleLine(ctx, x1, y1, x2, y2, config = {}) {
+        const strands = config.strands ?? 3;
+        const spacing = config.spacing ?? 2;
+
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const angle = Math.atan2(dy, dx);
+
+        // Perpendicular offset direction
+        const perpX = -Math.sin(angle);
+        const perpY = Math.cos(angle);
+
+        // Calculate total width and starting offset to centre the strands
+        const totalWidth = (strands - 1) * spacing;
+        const startOffset = -totalWidth / 2;
+
+        // Draw each strand
+        for (let i = 0; i < strands; i++) {
+            const offset = startOffset + i * spacing;
+            const offsetX = perpX * offset;
+            const offsetY = perpY * offset;
+
+            ctx.moveTo(x1 + offsetX, y1 + offsetY);
+            ctx.lineTo(x2 + offsetX, y2 + offsetY);
+        }
+    }
+
     drawNode(node, simulating = false) {
         const ctx = this.ctx;
+
+        // Ground anchors have special rendering
+        if (node.isGroundAnchor) {
+            this.drawGroundAnchor(node);
+            return;
+        }
+
         const radius = Node.radius;
 
         // Get actual position (from physics body if simulating)
@@ -308,15 +355,34 @@ export class Renderer {
         ctx.stroke();
 
         ctx.shadowBlur = 0;
+    }
 
-        // Draw fixed indicator (anchor symbol)
-        if (node.fixed) {
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = 'bold 14px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('⚓', pos.x, pos.y);
+    /**
+     * Draw a ground anchor point (small, fixed, non-editable).
+     * @param {Node} node - The ground anchor node
+     */
+    drawGroundAnchor(node) {
+        const ctx = this.ctx;
+        const radius = Node.anchorRadius;
+        const pos = { x: node.x, y: node.y };
+
+        // Subtle glow when hovered
+        if (node.hovered) {
+            ctx.shadowColor = this.colors.nodeFixed;
+            ctx.shadowBlur = 10;
         }
+
+        // Draw small circle with ground colour
+        ctx.fillStyle = this.colors.nodeFixed;
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
     }
 
     drawWeight(weight, simulating = false) {
@@ -490,7 +556,7 @@ export class Renderer {
         const stressColor = segment.getStressColor();
 
         // Draw background pill
-        const text = `${Math.round(segment.stress * 100)}%`;
+        const text = `${Math.round(segment.stress * 100)}`;
         ctx.font = 'bold 11px "DM Sans", sans-serif';
         const textWidth = ctx.measureText(text).width;
         const pillWidth = textWidth + 10;
@@ -549,19 +615,32 @@ export class Renderer {
             // Normalise to draw the smaller arc
             const { startAngle, endAngle, clockwise } = this.normaliseArcAngles(angleA, angleB);
 
-            // Colour by torque only during simulation (neutral colour when static)
-            const color = simulating
-                ? this.getTorqueColor(pair.normalisedTorque)
-                : STRESS_COLORS.low;
+            // Colour and thickness by load path stress during simulation
+            // Load path stress = min(stressA, stressB) — highlights where load flows through
+            const stress = pair.loadPathStress ?? 0;
+
+            // In sim mode: grey for zero load, stress colour otherwise
+            // In design mode: always cyan
+            let color;
+            if (simulating) {
+                color = stress > 0 ? this.getStressColor(stress) : '#666666';
+            } else {
+                color = STRESS_COLORS.low;
+            }
+
+            // Thickness scales with load: 2px (no load) to 6px (critical)
+            const thickness = simulating
+                ? (stress > 0 ? 2 + stress * 4 : 1)
+                : 2;
 
             // Draw arc
             ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
+            ctx.lineWidth = thickness;
             ctx.beginPath();
             ctx.arc(pos.x, pos.y, arcRadius, startAngle, endAngle, clockwise);
             ctx.stroke();
 
-            // Draw angle label at arc midpoint
+            // Draw label at arc midpoint
             const midAngle = clockwise
                 ? startAngle - (startAngle - endAngle + 2 * Math.PI) % (2 * Math.PI) / 2
                 : (startAngle + endAngle) / 2;
@@ -569,13 +648,13 @@ export class Renderer {
             const labelX = pos.x + Math.cos(midAngle) * labelRadius;
             const labelY = pos.y + Math.sin(midAngle) * labelRadius;
 
-            const degrees = Math.round(pair.angle * 180 / Math.PI);
-            const torquePercent = Math.round(pair.normalisedTorque * 100);
+            // Sim mode: show stress intensity (0-100), Design mode: show angle
+            const text = simulating
+                ? `${Math.round(stress * 100)}`
+                : `${Math.round(pair.angle * 180 / Math.PI)}°`;
 
             // Draw label background pill
             ctx.font = 'bold 10px "DM Sans", sans-serif';
-            // Plan mode: show angle; Sim mode: show stress %
-            const text = simulating ? `${torquePercent}%` : `${degrees}°`;
             const textWidth = ctx.measureText(text).width;
             const pillWidth = textWidth + 6;
             const pillHeight = 14;
@@ -641,14 +720,15 @@ export class Renderer {
     }
 
     /**
-     * Get colour for torque magnitude using stress colour gradient.
-     * @param {number} normalisedTorque - Torque value 0-1
+     * Get colour for a normalised stress value (0-1).
+     * Used for joints, segments, and any stress visualisation.
+     * @param {number} stress - Stress value 0-1
      * @returns {string} Hex colour
      */
-    getTorqueColor(normalisedTorque) {
-        if (normalisedTorque < 0.25) return STRESS_COLORS.low;
-        if (normalisedTorque < 0.50) return STRESS_COLORS.medium;
-        if (normalisedTorque < 0.75) return STRESS_COLORS.high;
+    getStressColor(stress) {
+        if (stress < 0.25) return STRESS_COLORS.low;
+        if (stress < 0.50) return STRESS_COLORS.medium;
+        if (stress < 0.75) return STRESS_COLORS.high;
         return STRESS_COLORS.critical;
     }
 

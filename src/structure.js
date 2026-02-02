@@ -24,7 +24,7 @@ export class Node {
         this.y = y;
         this.fixed = false;
         this.mass = Node.defaultMass;
-        this.angularStiffness = Node.defaultAngularStiffness;  // Joint stiffness (0 = free hinge, 1 = locked)
+        this.angularStiffness = Node.defaultAngularStiffness;
         this.body = null;  // Matter.js body reference
         this.selected = false;
         this.hovered = false;
@@ -32,10 +32,16 @@ export class Node {
 
     static nextId = 0;
     static radius = 12;
+    static anchorRadius = 6;  // Smaller radius for ground anchors
     static minMass = 0.1;
     static maxMass = 50;
     static defaultMass = 5;
     static defaultAngularStiffness = 0.5;
+
+    // Capability getters - override in subclasses
+    get isEditable() { return true; }
+    get isDeletable() { return true; }
+    get isGroundAnchor() { return false; }
 
     setFixed(fixed) {
         this.fixed = fixed;
@@ -59,6 +65,38 @@ export class Node {
         this.x = x;
         this.y = y;
     }
+}
+
+/**
+ * GroundAnchor - Fixed infrastructure node that cannot be edited or deleted.
+ * Users can connect segments to ground anchors but cannot modify their properties.
+ */
+export class GroundAnchor extends Node {
+    constructor(x, y) {
+        super(x, y);
+        this.fixed = true;
+        // Use sensible defaults for physics compatibility (static bodies ignore mass,
+        // but we avoid passing null to Matter.js)
+        this._mass = 1;
+        this._angularStiffness = 0;
+    }
+
+    // Override capability getters
+    get isEditable() { return false; }
+    get isDeletable() { return false; }
+    get isGroundAnchor() { return true; }
+
+    // Immutable physics properties - return defaults, ignore writes
+    get mass() { return this._mass; }
+    set mass(value) { /* no-op */ }
+
+    get angularStiffness() { return this._angularStiffness; }
+    set angularStiffness(value) { /* no-op */ }
+
+    // No-op methods - callers don't need to check type
+    setFixed() { /* ground anchors are always fixed */ }
+    setMass() { /* ground anchors have no mass */ }
+    setAngularStiffness() { /* ground anchors have no angular stiffness */ }
 }
 
 // Segment class
@@ -310,13 +348,54 @@ export class StructureManager {
         this.selectedWeight = null;
     }
 
+    /**
+     * Check if the structure is empty (no nodes, segments, or weights).
+     * @returns {boolean}
+     */
+    isEmpty() {
+        return this.nodes.length === 0 &&
+               this.segments.length === 0 &&
+               this.weights.length === 0;
+    }
+
     addNode(x, y) {
         const node = new Node(x, y);
         this.nodes.push(node);
         return node;
     }
 
+    /**
+     * Add a ground anchor node (fixed, non-editable).
+     * @param {number} x - X position
+     * @param {number} y - Y position (should be groundY)
+     * @returns {GroundAnchor}
+     */
+    addGroundAnchor(x, y) {
+        const anchor = new GroundAnchor(x, y);
+        this.nodes.push(anchor);
+        return anchor;
+    }
+
+    /**
+     * Get all ground anchor nodes.
+     * @returns {Node[]}
+     */
+    getGroundAnchors() {
+        return this.nodes.filter(n => n.isGroundAnchor);
+    }
+
+    /**
+     * Get all regular (editable) nodes.
+     * @returns {Node[]}
+     */
+    getRegularNodes() {
+        return this.nodes.filter(n => n.isEditable);
+    }
+
     removeNode(node) {
+        // Prevent removing non-deletable nodes (e.g., ground anchors)
+        if (!node.isDeletable) return;
+
         // Remove any weights attached to this node
         this.weights = this.weights.filter(w => !w.isAttachedTo(node));
 
@@ -460,9 +539,11 @@ export class StructureManager {
 
     findNodeAt(x, y, radius = Node.radius * 2) {
         for (const node of this.nodes) {
+            // Use smaller hit radius for ground anchors
+            const hitRadius = node.isGroundAnchor ? Node.anchorRadius * 2 : radius;
             const dx = node.x - x;
             const dy = node.y - y;
-            if (Math.sqrt(dx * dx + dy * dy) < radius) {
+            if (Math.sqrt(dx * dx + dy * dy) < hitRadius) {
                 return node;
             }
         }
@@ -707,11 +788,13 @@ export class StructureManager {
     }
 
     getStats() {
+        const regularNodes = this.getRegularNodes();
         return {
-            nodeCount: this.nodes.length,
+            nodeCount: regularNodes.length,
             segmentCount: this.segments.length,
             weightCount: this.weights.length,
-            maxStress: this.updateAllStress()
+            maxStress: this.updateAllStress(),
+            hasUserContent: regularNodes.length > 0 || this.segments.length > 0 || this.weights.length > 0
         };
     }
 
@@ -729,13 +812,21 @@ export class StructureManager {
         this.segments.forEach((segment, index) => segmentIndexMap.set(segment, index));
 
         return {
-            nodes: this.nodes.map(node => ({
-                x: node.x,
-                y: node.y,
-                fixed: node.fixed,
-                mass: node.mass,
-                angularStiffness: node.angularStiffness
-            })),
+            nodes: this.nodes.map(node => {
+                const isAnchor = node instanceof GroundAnchor;
+                return {
+                    x: node.x,
+                    y: node.y,
+                    // Ground anchors only need position; regular nodes have full properties
+                    ...(isAnchor ? {
+                        isGroundAnchor: true
+                    } : {
+                        fixed: node.fixed,
+                        mass: node.mass,
+                        angularStiffness: node.angularStiffness
+                    })
+                };
+            }),
             segments: this.segments.map(segment => ({
                 nodeAIndex: nodeIndexMap.get(segment.nodeA),
                 nodeBIndex: nodeIndexMap.get(segment.nodeB),
@@ -764,12 +855,18 @@ export class StructureManager {
         // Clear current state
         this.clear();
 
-        // Restore nodes
+        // Restore nodes (ground anchors vs regular nodes)
         for (const nodeData of data.nodes) {
-            const node = this.addNode(nodeData.x, nodeData.y);
-            node.fixed = nodeData.fixed;
-            node.mass = nodeData.mass ?? Node.defaultMass;
-            node.angularStiffness = nodeData.angularStiffness ?? Node.defaultAngularStiffness;
+            if (nodeData.isGroundAnchor) {
+                // Ground anchors only need position
+                this.addGroundAnchor(nodeData.x, nodeData.y);
+            } else {
+                // Regular nodes have full properties
+                const node = this.addNode(nodeData.x, nodeData.y);
+                node.fixed = nodeData.fixed;
+                node.mass = nodeData.mass ?? Node.defaultMass;
+                node.angularStiffness = nodeData.angularStiffness ?? Node.defaultAngularStiffness;
+            }
         }
 
         // Restore segments (referencing restored nodes by index)

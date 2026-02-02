@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { StructureManager, Node, Segment, Weight, MATERIALS } from './structure.js';
+import { StructureManager, Node, GroundAnchor, Segment, Weight, MATERIALS } from './structure.js';
 
 describe('StructureManager - splitSegment', () => {
     let structure;
@@ -315,6 +315,213 @@ describe('Node - mass property', () => {
             expect(Node.minMass).toBeLessThan(Node.maxMass);
             expect(Node.defaultMass).toBeGreaterThanOrEqual(Node.minMass);
             expect(Node.defaultMass).toBeLessThanOrEqual(Node.maxMass);
+        });
+    });
+});
+
+describe('GroundAnchor', () => {
+    beforeEach(() => {
+        Node.nextId = 0;
+    });
+
+    describe('capability getters', () => {
+        it('should not be editable', () => {
+            const anchor = new GroundAnchor(100, 500);
+            expect(anchor.isEditable).toBe(false);
+        });
+
+        it('should not be deletable', () => {
+            const anchor = new GroundAnchor(100, 500);
+            expect(anchor.isDeletable).toBe(false);
+        });
+
+        it('should identify as ground anchor', () => {
+            const anchor = new GroundAnchor(100, 500);
+            expect(anchor.isGroundAnchor).toBe(true);
+        });
+
+        it('should always be fixed', () => {
+            const anchor = new GroundAnchor(100, 500);
+            expect(anchor.fixed).toBe(true);
+        });
+    });
+
+    describe('immutable properties', () => {
+        it('should return default mass (not null)', () => {
+            const anchor = new GroundAnchor(100, 500);
+            expect(anchor.mass).toBe(1);
+        });
+
+        it('should return default angular stiffness', () => {
+            const anchor = new GroundAnchor(100, 500);
+            expect(anchor.angularStiffness).toBe(0);
+        });
+
+        it('should ignore mass assignment', () => {
+            const anchor = new GroundAnchor(100, 500);
+            anchor.mass = 50;
+            expect(anchor.mass).toBe(1);
+        });
+
+        it('should ignore angular stiffness assignment', () => {
+            const anchor = new GroundAnchor(100, 500);
+            anchor.angularStiffness = 0.8;
+            expect(anchor.angularStiffness).toBe(0);
+        });
+    });
+
+    describe('no-op methods', () => {
+        it('setFixed should not throw', () => {
+            const anchor = new GroundAnchor(100, 500);
+            expect(() => anchor.setFixed(false)).not.toThrow();
+            expect(anchor.fixed).toBe(true);
+        });
+
+        it('setMass should not throw', () => {
+            const anchor = new GroundAnchor(100, 500);
+            expect(() => anchor.setMass(50)).not.toThrow();
+            expect(anchor.mass).toBe(1);
+        });
+
+        it('setAngularStiffness should not throw', () => {
+            const anchor = new GroundAnchor(100, 500);
+            expect(() => anchor.setAngularStiffness(0.9)).not.toThrow();
+            expect(anchor.angularStiffness).toBe(0);
+        });
+    });
+
+    describe('inheritance', () => {
+        it('should be an instance of Node', () => {
+            const anchor = new GroundAnchor(100, 500);
+            expect(anchor instanceof Node).toBe(true);
+        });
+
+        it('should have position properties', () => {
+            const anchor = new GroundAnchor(150, 500);
+            expect(anchor.x).toBe(150);
+            expect(anchor.y).toBe(500);
+        });
+
+        it('should have unique ID from Node sequence', () => {
+            const node = new Node(50, 100);
+            const anchor = new GroundAnchor(100, 500);
+            expect(anchor.id).toBe(node.id + 1);
+        });
+    });
+});
+
+describe('StructureManager - GroundAnchor integration', () => {
+    let structure;
+
+    beforeEach(() => {
+        structure = new StructureManager();
+        Node.nextId = 0;
+        Segment.nextId = 0;
+    });
+
+    describe('addGroundAnchor', () => {
+        it('should add ground anchor to nodes array', () => {
+            const anchor = structure.addGroundAnchor(100, 500);
+            expect(structure.nodes).toContain(anchor);
+        });
+
+        it('should return a GroundAnchor instance', () => {
+            const anchor = structure.addGroundAnchor(100, 500);
+            expect(anchor instanceof GroundAnchor).toBe(true);
+        });
+    });
+
+    describe('getGroundAnchors', () => {
+        it('should return only ground anchors', () => {
+            structure.addNode(50, 100);
+            structure.addGroundAnchor(100, 500);
+            structure.addNode(150, 100);
+            structure.addGroundAnchor(200, 500);
+
+            const anchors = structure.getGroundAnchors();
+            expect(anchors).toHaveLength(2);
+            expect(anchors.every(a => a.isGroundAnchor)).toBe(true);
+        });
+    });
+
+    describe('getRegularNodes', () => {
+        it('should return only editable nodes', () => {
+            structure.addNode(50, 100);
+            structure.addGroundAnchor(100, 500);
+            structure.addNode(150, 100);
+
+            const regularNodes = structure.getRegularNodes();
+            expect(regularNodes).toHaveLength(2);
+            expect(regularNodes.every(n => n.isEditable)).toBe(true);
+        });
+    });
+
+    describe('removeNode', () => {
+        it('should not remove ground anchors', () => {
+            const anchor = structure.addGroundAnchor(100, 500);
+            structure.removeNode(anchor);
+            expect(structure.nodes).toContain(anchor);
+        });
+
+        it('should still remove regular nodes', () => {
+            const node = structure.addNode(100, 100);
+            structure.removeNode(node);
+            expect(structure.nodes).not.toContain(node);
+        });
+    });
+
+    describe('segment connections', () => {
+        it('should allow segments between regular nodes and ground anchors', () => {
+            const node = structure.addNode(100, 100);
+            const anchor = structure.addGroundAnchor(100, 500);
+            const segment = structure.addSegment(node, anchor);
+
+            expect(segment).not.toBeNull();
+            expect(segment.nodeA).toBe(node);
+            expect(segment.nodeB).toBe(anchor);
+        });
+    });
+
+    describe('serialization', () => {
+        it('should serialize ground anchors with isGroundAnchor flag', () => {
+            structure.addGroundAnchor(100, 500);
+            const data = structure.serialize();
+
+            expect(data.nodes[0].isGroundAnchor).toBe(true);
+            expect(data.nodes[0].x).toBe(100);
+            expect(data.nodes[0].y).toBe(500);
+        });
+
+        it('should not include mass/fixed for ground anchors', () => {
+            structure.addGroundAnchor(100, 500);
+            const data = structure.serialize();
+
+            expect(data.nodes[0]).not.toHaveProperty('mass');
+            expect(data.nodes[0]).not.toHaveProperty('fixed');
+        });
+
+        it('should deserialize ground anchors correctly', () => {
+            structure.addGroundAnchor(100, 500);
+            structure.addNode(150, 100);
+            const data = structure.serialize();
+
+            structure.deserialize(data);
+
+            expect(structure.nodes).toHaveLength(2);
+            expect(structure.nodes[0] instanceof GroundAnchor).toBe(true);
+            expect(structure.nodes[1] instanceof GroundAnchor).toBe(false);
+        });
+
+        it('should preserve segments to ground anchors through serialization', () => {
+            const anchor = structure.addGroundAnchor(100, 500);
+            const node = structure.addNode(100, 100);
+            structure.addSegment(node, anchor);
+            const data = structure.serialize();
+
+            structure.deserialize(data);
+
+            expect(structure.segments).toHaveLength(1);
+            expect(structure.segments[0].nodeB instanceof GroundAnchor).toBe(true);
         });
     });
 });

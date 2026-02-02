@@ -165,6 +165,38 @@ Design systems that are **open for extension** but **closed for modification**. 
 2. Add detection logic in the dispatcher: `if (joint) { ... }`
 3. Existing node/segment factories remain unchanged
 
+### Node Hierarchy & Capability Getters
+
+Nodes use inheritance with **capability getters** to enable polymorphism without scattered type checks:
+
+```javascript
+// Base class (structure.js)
+class Node {
+    get isEditable() { return true; }
+    get isDeletable() { return true; }
+    get isGroundAnchor() { return false; }
+    setMass(value) { this.mass = value; }  // Normal behaviour
+}
+
+// Subclass overrides capabilities and uses no-ops
+class GroundAnchor extends Node {
+    get isEditable() { return false; }
+    get isDeletable() { return false; }
+    get isGroundAnchor() { return true; }
+    setMass() { /* no-op */ }  // Safe to call, does nothing
+}
+```
+
+**When to use which getter:**
+
+| Getter | Use Case | Example |
+|--------|----------|---------|
+| `isEditable` | Behaviour decisions (UI, popups, drag) | `if (!node.isEditable) return;` in popup show() |
+| `isDeletable` | Deletion guards | `if (!node.isDeletable) return;` in removeNode() |
+| `isGroundAnchor` | Visual/rendering distinctions | Different radius, different appearance |
+
+**Key pattern**: Prefer calling methods directly (e.g., `node.setMass(5)`) rather than checking type first. No-op implementations in subclasses make this safe.
+
 ### Centralised Element Detection
 
 All element detection uses `findElementAt(x, y)` in main.js with strict priority order:

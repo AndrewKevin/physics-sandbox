@@ -114,10 +114,10 @@ export class InputController {
         const drag = this.options.getDrag();
         const selectionBox = this.options.getSelectionBox?.();
 
-        if (node) {
-            // Clicking on a node - start potential drag
+        if (node && node.isEditable) {
+            // Clicking on an editable node - start potential drag
             drag.beginPotentialDrag(node, pos);
-        } else if (selectionBox) {
+        } else if (selectionBox && !node) {
             // Clicking on empty space - start potential selection box
             selectionBox.beginSelection(pos, this.shiftHeld);
         }

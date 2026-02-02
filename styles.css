@@ -230,13 +230,60 @@ body::after {
     text-align: center;
 }
 
-/* Material Previews (colour set inline from materials.js) */
+/* Material Previews - visual patterns matching sandbox rendering */
 .material-preview {
-    width: 32px;
-    height: 8px;
+    width: 40px;
+    height: 16px;
     border-radius: 4px;
     flex-shrink: 0;
-    margin-top: 4px;
+    margin-top: 2px;
+    position: relative;
+}
+
+/* Beam: Solid thick cyan line */
+.material-preview--beam {
+    background: linear-gradient(
+        to bottom,
+        transparent 4px,
+        var(--accent-2) 4px,
+        var(--accent-2) 12px,
+        transparent 12px
+    );
+}
+
+/* Spring: Yellow zigzag pattern */
+.material-preview--spring {
+    background:
+        linear-gradient(135deg, var(--accent-3) 25%, transparent 25%),
+        linear-gradient(225deg, var(--accent-3) 25%, transparent 25%),
+        linear-gradient(45deg, var(--accent-3) 25%, transparent 25%),
+        linear-gradient(315deg, var(--accent-3) 25%, transparent 25%);
+    background-size: 8px 8px;
+    background-position: 0 0, 4px 0, 4px -4px, 0 4px;
+}
+
+/* Cable: Orange thinner line */
+.material-preview--cable {
+    background: linear-gradient(
+        to bottom,
+        transparent 5px,
+        var(--accent-4) 5px,
+        var(--accent-4) 11px,
+        transparent 11px
+    );
+}
+
+/* Muscle: Magenta triple fibrous lines */
+.material-preview--muscle {
+    background: repeating-linear-gradient(
+        to bottom,
+        transparent,
+        transparent 2px,
+        var(--accent-1) 2px,
+        var(--accent-1) 4px,
+        transparent 4px,
+        transparent 6px
+    );
 }
 
 /* ============================================
