@@ -241,32 +241,13 @@ body::after {
     text-align: center;
 }
 
-/* Material Previews */
+/* Material Previews (colour set inline from materials.js) */
 .material-preview {
     width: 32px;
     height: 8px;
     border-radius: 4px;
     flex-shrink: 0;
     margin-top: 4px;
-}
-
-.beam-preview {
-    background: var(--accent-2);
-}
-
-.spring-preview {
-    background: repeating-linear-gradient(
-        90deg,
-        var(--accent-3) 0px,
-        var(--accent-3) 4px,
-        transparent 4px,
-        transparent 8px
-    );
-}
-
-.cable-preview {
-    background: var(--accent-4);
-    height: 3px;
 }
 
 /* ============================================
@@ -534,18 +515,6 @@ body::after {
     margin-top: 8px;
 }
 
-/* Options Group */
-.options-group {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.options-group.disabled {
-    opacity: 0.4;
-    pointer-events: none;
-}
-
 .toggle-option {
     display: grid;
     grid-template-columns: 24px 1fr;
@@ -581,128 +550,6 @@ body::after {
 .toggle-hint {
     font-size: 12px;
     color: rgba(255, 255, 255, 0.5);
-}
-
-/* Control Rows (sliders, selects) */
-.control-row {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-    background: rgba(13, 13, 26, 0.5);
-    border: 2px solid var(--accent-5);
-    border-radius: 12px;
-}
-
-.control-label {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-weight: 700;
-    font-size: 13px;
-    color: var(--fg);
-}
-
-.value-display {
-    font-family: var(--font-heading);
-    font-weight: 800;
-    color: var(--accent-2);
-    font-size: 14px;
-}
-
-.control-hint {
-    font-size: 11px;
-    font-weight: 400;
-    color: rgba(255, 255, 255, 0.5);
-    line-height: 1.3;
-    margin-top: 4px;
-}
-
-/* Select Dropdown */
-.control-select {
-    width: 100%;
-    padding: 10px 14px;
-    background: rgba(13, 13, 26, 0.8);
-    border: 2px solid var(--accent-5);
-    border-radius: 8px;
-    color: var(--fg);
-    font-family: var(--font-body);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease-out;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2300F5D4' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-}
-
-.control-select:hover {
-    border-color: var(--accent-2);
-    box-shadow: 0 0 15px rgba(0, 245, 212, 0.3);
-}
-
-.control-select:focus {
-    outline: none;
-    border-color: var(--accent-2);
-    box-shadow: 0 0 20px rgba(0, 245, 212, 0.4);
-}
-
-.control-select option {
-    background: var(--bg);
-    color: var(--fg);
-    padding: 10px;
-}
-
-/* Range Slider */
-.control-slider {
-    width: 100%;
-    height: 8px;
-    background: rgba(13, 13, 26, 0.8);
-    border-radius: 4px;
-    outline: none;
-    -webkit-appearance: none;
-    appearance: none;
-}
-
-.control-slider::-webkit-slider-track {
-    height: 8px;
-    background: linear-gradient(90deg, var(--accent-5), var(--accent-2));
-    border-radius: 4px;
-}
-
-.control-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 20px;
-    height: 20px;
-    background: var(--accent-3);
-    border: 3px solid var(--fg);
-    border-radius: 50%;
-    cursor: pointer;
-    box-shadow: 0 0 10px rgba(255, 230, 0, 0.5);
-    transition: all 0.2s ease-out;
-}
-
-.control-slider::-webkit-slider-thumb:hover {
-    transform: scale(1.2);
-    box-shadow: 0 0 20px rgba(255, 230, 0, 0.8);
-}
-
-.control-slider::-moz-range-track {
-    height: 8px;
-    background: linear-gradient(90deg, var(--accent-5), var(--accent-2));
-    border-radius: 4px;
-}
-
-.control-slider::-moz-range-thumb {
-    width: 20px;
-    height: 20px;
-    background: var(--accent-3);
-    border: 3px solid var(--fg);
-    border-radius: 50%;
-    cursor: pointer;
-    box-shadow: 0 0 10px rgba(255, 230, 0, 0.5);
 }
 
 /* Stress Legend */
@@ -1231,6 +1078,21 @@ body::after {
     box-shadow: 0 0 8px rgba(255, 230, 0, 0.4);
 }
 
+/* Muscle properties section */
+.segment-muscle-section {
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 58, 242, 0.3);
+}
+
+.segment-muscle-section .scrubber-row {
+    padding: 4px 0;
+}
+
+.segment-muscle-section .scrubber-label {
+    min-width: 45px;
+    color: var(--accent-1);
+}
+
 .segment-popup-action-row {
     padding: 10px 12px;
     background: rgba(123, 47, 255, 0.1);
@@ -1258,6 +1120,47 @@ body::after {
 .segment-popup-delete-row:hover {
     background: var(--accent-1);
     color: var(--bg);
+}
+
+.segment-popup-toggle {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    grid-template-rows: auto auto;
+    gap: 2px 8px;
+    padding: 8px 10px;
+    margin: 4px 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: all 0.2s ease-out;
+}
+
+.segment-popup-toggle:hover {
+    border-color: var(--accent-1);
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.segment-popup-toggle input[type="checkbox"] {
+    grid-row: span 2;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent-1);
+    cursor: pointer;
+    align-self: center;
+}
+
+.segment-popup-toggle .toggle-label {
+    font-weight: 600;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.9);
+    user-select: none;
+}
+
+.segment-popup-toggle .toggle-hint {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    user-select: none;
 }
 
 /* ==========================================

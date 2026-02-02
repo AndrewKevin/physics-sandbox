@@ -2,6 +2,8 @@
  * UI Controller - Handles all DOM interactions
  */
 
+import { MATERIALS, MATERIAL_ORDER, getDefaultMaterial } from './materials.js';
+
 export class UIController {
     constructor(onMaterialChange, onSimToggle, onClear) {
         // Callbacks
@@ -10,24 +12,20 @@ export class UIController {
         this.onClear = onClear;
 
         // State
-        this.currentMaterial = 'beam';
+        this.currentMaterial = getDefaultMaterial();
+
+        // Generate material buttons from data source
+        this.generateMaterialButtons();
 
         // Cache DOM elements with null guards
         this.elements = {
+            materialButtonsContainer: this.getElement('material-buttons'),
             materialButtons: document.querySelectorAll('.material-btn'),
             simToggle: this.getElement('sim-toggle'),
             simClear: this.getElement('sim-clear'),
             stateSave: this.getElement('state-save'),
             stateLoad: this.getElement('state-load'),
             selectionInfo: this.getElement('selection-info'),
-            segmentOptions: this.getElement('segment-options'),
-            segmentMaterial: this.getElement('segment-material'),
-            segmentStiffness: this.getElement('segment-stiffness'),
-            segmentDamping: this.getElement('segment-damping'),
-            stiffnessValue: this.getElement('stiffness-value'),
-            dampingValue: this.getElement('damping-value'),
-            segmentCompression: this.getElement('segment-compression'),
-            segmentTension: this.getElement('segment-tension'),
             viewSnapToGrid: this.getElement('view-snap-to-grid'),
             viewStressLabels: this.getElement('view-stress-labels'),
             viewJointAngles: this.getElement('view-joint-angles'),
@@ -39,6 +37,35 @@ export class UIController {
         };
 
         this.bindEvents();
+    }
+
+    /**
+     * Generate material buttons from MATERIALS data source.
+     */
+    generateMaterialButtons() {
+        const container = document.getElementById('material-buttons');
+        if (!container) return;
+
+        const defaultMaterial = getDefaultMaterial();
+
+        for (const key of MATERIAL_ORDER) {
+            const mat = MATERIALS[key];
+            if (!mat) continue;
+
+            const button = document.createElement('button');
+            button.className = 'material-btn' + (key === defaultMaterial ? ' active' : '');
+            button.dataset.material = key;
+
+            button.innerHTML = `
+                <span class="material-preview" style="background-color: ${mat.color}"></span>
+                <span class="material-text">
+                    <span class="material-name">${mat.label}</span>
+                    <span class="material-desc">${mat.description}</span>
+                </span>
+            `;
+
+            container.appendChild(button);
+        }
     }
 
     /**
@@ -77,35 +104,6 @@ export class UIController {
 
         this.elements.stateLoad?.addEventListener('click', () => {
             this.onLoad?.();
-        });
-
-        // Segment options
-        this.elements.segmentMaterial?.addEventListener('change', (e) => {
-            this.onSegmentMaterialChange?.(e.target.value);
-        });
-
-        this.elements.segmentStiffness?.addEventListener('input', (e) => {
-            const value = parseFloat(e.target.value);
-            if (this.elements.stiffnessValue) {
-                this.elements.stiffnessValue.textContent = value.toFixed(2);
-            }
-            this.onSegmentStiffnessChange?.(value);
-        });
-
-        this.elements.segmentDamping?.addEventListener('input', (e) => {
-            const value = parseFloat(e.target.value);
-            if (this.elements.dampingValue) {
-                this.elements.dampingValue.textContent = value.toFixed(2);
-            }
-            this.onSegmentDampingChange?.(value);
-        });
-
-        this.elements.segmentCompression?.addEventListener('change', (e) => {
-            this.onSegmentCompressionChange?.(e.target.checked);
-        });
-
-        this.elements.segmentTension?.addEventListener('change', (e) => {
-            this.onSegmentTensionChange?.(e.target.checked);
         });
 
         // View options - notify on change for persistence
@@ -215,7 +213,6 @@ export class UIController {
                     <p class="hint-text">Drag any node to move all</p>
                 `;
             }
-            this.elements.segmentOptions?.classList.add('disabled');
             this.bindMultiSelectActions(nodes);
             return;
         }
@@ -223,44 +220,39 @@ export class UIController {
         // Update selection info (single element)
         if (node) {
             if (this.elements.selectionInfo) {
+                // Format joint stiffness nicely
+                const stiffnessLabel = node.angularStiffness === 0 ? 'Free'
+                    : node.angularStiffness === 1 ? 'Locked'
+                    : node.angularStiffness.toFixed(2);
+
                 this.elements.selectionInfo.innerHTML = `
                     <p><strong>Node #${node.id}</strong></p>
                     <p>Position: (${Math.round(node.x)}, ${Math.round(node.y)})</p>
                     <p>Fixed: ${node.fixed ? 'Yes' : 'No'}</p>
+                    <p>Mass: ${node.mass} kg</p>
+                    <p>Joint Stiffness: ${stiffnessLabel}</p>
+                    <p class="hint-text">Right-click to edit</p>
                 `;
             }
-            this.elements.segmentOptions?.classList.add('disabled');
         } else if (segment) {
             if (this.elements.selectionInfo) {
+                // Get material label from data source
+                const materialName = MATERIALS[segment.material]?.label || segment.material;
+
+                // Determine segment mode
+                const mode = segment.tensionOnly ? 'Tension Only'
+                    : segment.compressionOnly ? 'Compression Only'
+                    : 'Normal';
+
                 this.elements.selectionInfo.innerHTML = `
                     <p><strong>Segment #${segment.id}</strong></p>
+                    <p>Material: ${materialName}</p>
                     <p>Length: ${Math.round(segment.restLength)}px</p>
+                    <p>Stiffness: ${segment.stiffness.toFixed(2)}</p>
+                    <p>Damping: ${segment.damping.toFixed(2)}</p>
+                    <p>Mode: ${mode}</p>
                     <p>Stress: ${Math.round(segment.stress * 100)}%</p>
                 `;
-            }
-            this.elements.segmentOptions?.classList.remove('disabled');
-
-            // Update segment controls to match selection
-            if (this.elements.segmentMaterial) {
-                this.elements.segmentMaterial.value = segment.material;
-            }
-            if (this.elements.segmentStiffness) {
-                this.elements.segmentStiffness.value = segment.stiffness || 0.9;
-            }
-            if (this.elements.stiffnessValue) {
-                this.elements.stiffnessValue.textContent = (segment.stiffness || 0.9).toFixed(2);
-            }
-            if (this.elements.segmentDamping) {
-                this.elements.segmentDamping.value = segment.damping || 0.1;
-            }
-            if (this.elements.dampingValue) {
-                this.elements.dampingValue.textContent = (segment.damping || 0.1).toFixed(2);
-            }
-            if (this.elements.segmentCompression) {
-                this.elements.segmentCompression.checked = segment.compressionOnly;
-            }
-            if (this.elements.segmentTension) {
-                this.elements.segmentTension.checked = segment.tensionOnly;
             }
         } else if (weight) {
             const pos = weight.getPosition();
@@ -277,12 +269,10 @@ export class UIController {
                     <p class="hint-text">Right-click to edit</p>
                 `;
             }
-            this.elements.segmentOptions?.classList.add('disabled');
         } else {
             if (this.elements.selectionInfo) {
                 this.elements.selectionInfo.innerHTML = '<p class="empty-state">Nothing selected</p>';
             }
-            this.elements.segmentOptions?.classList.add('disabled');
         }
     }
 
@@ -311,27 +301,6 @@ export class UIController {
                 this.elements.statStress.style.color = '#FF3AF2';  // Magenta - critical
             }
         }
-    }
-
-    // Set callbacks for segment property changes
-    setSegmentMaterialCallback(callback) {
-        this.onSegmentMaterialChange = callback;
-    }
-
-    setSegmentStiffnessCallback(callback) {
-        this.onSegmentStiffnessChange = callback;
-    }
-
-    setSegmentDampingCallback(callback) {
-        this.onSegmentDampingChange = callback;
-    }
-
-    setSegmentCompressionCallback(callback) {
-        this.onSegmentCompressionChange = callback;
-    }
-
-    setSegmentTensionCallback(callback) {
-        this.onSegmentTensionChange = callback;
     }
 
     // Set callbacks for state save/load

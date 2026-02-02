@@ -30,6 +30,7 @@ export const MATERIALS = {
         // UI metadata
         label: 'Rigid Beam',
         shortLabel: 'Bm',
+        description: 'High stiffness, resists both compression and tension equally',
 
         // Physics properties
         stiffness: 0.9,      // Slightly soft to show deformation
@@ -48,6 +49,7 @@ export const MATERIALS = {
         // UI metadata
         label: 'Spring',
         shortLabel: 'Sp',
+        description: 'Low stiffness, stretches and bounces under load',
 
         // Physics properties
         stiffness: 0.2,      // Bouncy
@@ -70,6 +72,7 @@ export const MATERIALS = {
         // UI metadata
         label: 'Cable',
         shortLabel: 'Cb',
+        description: 'Tension only, goes slack under compression',
 
         // Physics properties
         stiffness: 0.7,      // Slightly stretchy
@@ -88,6 +91,7 @@ export const MATERIALS = {
         // UI metadata
         label: 'Muscle',
         shortLabel: 'Mu',
+        description: 'Active contraction, pulls toward target length',
 
         // Physics properties
         stiffness: 0.6,      // Moderate stiffness
@@ -97,9 +101,8 @@ export const MATERIALS = {
 
         // Active contraction properties
         isActive: true,              // Generates force actively
-        contractionRatio: 0.7,       // Wants to be 70% of rest length
-        maxStress: 0.6,              // Yields above this stress level (0-1)
-        yieldRate: 0.02,             // How fast rest length increases when overstressed
+        contractionRatio: 0.5,       // Target is 50% of rest length (fully contracted)
+        breakOnOverload: false,      // Whether to break when 100% stress is reached
 
         // Visual properties
         color: '#FF3AF2',    // Magenta (accent-1)

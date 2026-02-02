@@ -457,11 +457,10 @@ export class Renderer {
         const offsetY = -Math.cos(angle) * offsetDist;
 
         // Get stress percentage and colour
-        const stressPercent = Math.round(segment.stress * 100);
         const stressColor = segment.getStressColor();
 
         // Draw background pill
-        const text = `${stressPercent}%`;
+        const text = `${Math.round(segment.stress * 100)}%`;
         ctx.font = 'bold 11px "DM Sans", sans-serif';
         const textWidth = ctx.measureText(text).width;
         const pillWidth = textWidth + 10;

@@ -76,13 +76,19 @@ export class Segment {
         this.hovered = false;
 
         // Per-segment adjustable properties (initialised from material)
-        this.stiffness = MATERIALS[material].stiffness;
-        this.damping = MATERIALS[material].damping;
-        this.compressionOnly = MATERIALS[material].compressionOnly;
-        this.tensionOnly = MATERIALS[material].tensionOnly;
+        const mat = MATERIALS[material];
+        this.stiffness = mat.stiffness;
+        this.damping = mat.damping;
+        this.compressionOnly = mat.compressionOnly;
+        this.tensionOnly = mat.tensionOnly;
+
+        // Muscle-specific properties (for active materials)
+        this.contractionRatio = mat.contractionRatio ?? 0.5;
+        this.breakOnOverload = mat.breakOnOverload ?? false;  // Break when 100% stress
 
         // Runtime state (set during simulation)
         this.isSlack = false;
+        this.isBroken = false;  // Set when muscle breaks from overload
         this.inTension = false;
         this.inCompression = false;
     }
@@ -98,28 +104,52 @@ export class Segment {
     updateStress() {
         if (!this.constraint) return 0;
 
-        // Slack segments transmit no force
-        if (this.isSlack) {
+        // Slack or broken segments transmit no force
+        if (this.isSlack || this.isBroken) {
             this.stress = 0;
             return 0;
         }
 
         // currentLength is set by updateConstraintModes() in the physics loop
-        // This avoids duplicate length calculations
         const length = this.currentLength ?? this.restLength;
 
-        // Calculate strain (deformation ratio)
+        const material = MATERIALS[this.material];
+
+        // Unified stress formula: stress = strain × stiffness × amplifier
+        // Amplifier chosen so stiff materials show visible stress at small deformations
+        const STRESS_AMPLIFIER = 400;
+
+        // For active muscles, reference is the constraint length (which shrinks during contraction)
+        if (material?.isActive) {
+            const constraintLength = this.constraint.length;
+            const targetLength = this.muscleTargetLength ?? constraintLength;
+
+            // Track if muscle is still contracting (hasn't reached target yet)
+            this.isContracting = constraintLength > targetLength + 0.5;
+
+            // Always calculate stress - needed to detect when muscle is overpowered
+            // Muscles are tension-only: stress when stretched beyond constraint length
+            if (length <= constraintLength) {
+                this.stress = 0;
+                this.inTension = false;
+                this.inCompression = true;
+            } else {
+                const strain = (length - constraintLength) / constraintLength;
+                this.stress = Math.min(strain * this.stiffness * STRESS_AMPLIFIER, 1);
+                this.inTension = true;
+                this.inCompression = false;
+            }
+
+            return this.stress;
+        }
+
+        // For passive segments, reference is the rest length
         const strain = Math.abs(length - this.restLength) / this.restLength;
 
-        // Track tension/compression state
         this.inTension = length > this.restLength;
         this.inCompression = length < this.restLength;
 
-        // Stress is proportional to internal force: Force = Stiffness × Strain
-        // This means a stiff beam under small deformation shows similar stress
-        // to a soft spring under large deformation (when under equal load)
-        const force = strain * this.stiffness;
-        this.stress = Math.min(force * 400, 1);
+        this.stress = Math.min(strain * this.stiffness * STRESS_AMPLIFIER, 1);
 
         return this.stress;
     }
@@ -150,6 +180,26 @@ export class Segment {
         this.damping = mat.damping;
         this.compressionOnly = mat.compressionOnly;
         this.tensionOnly = mat.tensionOnly;
+
+        // Muscle-specific properties
+        this.contractionRatio = mat.contractionRatio ?? 0.5;
+        this.breakOnOverload = mat.breakOnOverload ?? false;
+    }
+
+    /**
+     * Set contraction ratio for muscle segments.
+     * @param {number} value - Target contraction as ratio of rest length (0.2-1.0)
+     */
+    setContractionRatio(value) {
+        this.contractionRatio = Math.max(0.2, Math.min(1.0, value));
+    }
+
+    /**
+     * Set break on overload for muscle segments.
+     * @param {boolean} value - Whether to break when 100% stress is reached
+     */
+    setBreakOnOverload(value) {
+        this.breakOnOverload = !!value;
     }
 }
 
@@ -329,7 +379,8 @@ export class StructureManager {
         const newY = segment.nodeA.y + (segment.nodeB.y - segment.nodeA.y) * t;
 
         // Store original properties
-        const { material, stiffness, damping, compressionOnly, tensionOnly } = segment;
+        const { material, stiffness, damping, compressionOnly, tensionOnly,
+                contractionRatio, breakOnOverload } = segment;
         const originalNodeA = segment.nodeA;
         const originalNodeB = segment.nodeB;
 
@@ -351,6 +402,8 @@ export class StructureManager {
         segmentA.damping = damping;
         segmentA.compressionOnly = compressionOnly;
         segmentA.tensionOnly = tensionOnly;
+        segmentA.contractionRatio = contractionRatio;
+        segmentA.breakOnOverload = breakOnOverload;
         this.segments.push(segmentA);
 
         const segmentB = new Segment(newNode, originalNodeB, material);
@@ -358,6 +411,8 @@ export class StructureManager {
         segmentB.damping = damping;
         segmentB.compressionOnly = compressionOnly;
         segmentB.tensionOnly = tensionOnly;
+        segmentB.contractionRatio = contractionRatio;
+        segmentB.breakOnOverload = breakOnOverload;
         this.segments.push(segmentB);
 
         // Reassign weights to the appropriate new segment
@@ -688,7 +743,9 @@ export class StructureManager {
                 stiffness: segment.stiffness,
                 damping: segment.damping,
                 compressionOnly: segment.compressionOnly,
-                tensionOnly: segment.tensionOnly
+                tensionOnly: segment.tensionOnly,
+                contractionRatio: segment.contractionRatio,
+                breakOnOverload: segment.breakOnOverload
             })),
             weights: this.weights.map(weight => ({
                 mass: weight.mass,
@@ -725,6 +782,9 @@ export class StructureManager {
                 segment.damping = segmentData.damping;
                 segment.compressionOnly = segmentData.compressionOnly;
                 segment.tensionOnly = segmentData.tensionOnly;
+                // Restore muscle properties (with defaults for older saves)
+                segment.contractionRatio = segmentData.contractionRatio ?? 0.5;
+                segment.breakOnOverload = segmentData.breakOnOverload ?? false;
             }
         }
 

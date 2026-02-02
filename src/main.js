@@ -106,7 +106,13 @@ class PhysicsSandbox {
                     } else {
                         this.structure.selectMultipleNodes(nodes);
                     }
-                    this.ui.updateSelection({ nodes: this.structure.selectedNodes });
+                    // Show single node info for 1 node, multi-select for 2+
+                    const selectedNodes = this.structure.selectedNodes;
+                    if (selectedNodes.length === 1) {
+                        this.ui.updateSelection({ node: selectedNodes[0] });
+                    } else {
+                        this.ui.updateSelection({ nodes: selectedNodes });
+                    }
                 } else if (!additive) {
                     // Empty selection box without shift = clear selection
                     this.structure.clearSelection();
@@ -226,52 +232,6 @@ class PhysicsSandbox {
             (simulating) => this.toggleSimulation(simulating),
             () => this.clear()
         );
-
-        // Wire up property change callbacks
-        this.ui.setSegmentCompressionCallback((compression) => {
-            const seg = this.structure.selectedSegment;
-            if (seg) {
-                seg.compressionOnly = compression;
-                if (compression) seg.tensionOnly = false;
-                this.ui.updateSelection({ segment: seg });
-                this.markStructureDirty();
-            }
-        });
-
-        this.ui.setSegmentTensionCallback((tension) => {
-            const seg = this.structure.selectedSegment;
-            if (seg) {
-                seg.tensionOnly = tension;
-                if (tension) seg.compressionOnly = false;
-                this.ui.updateSelection({ segment: seg });
-                this.markStructureDirty();
-            }
-        });
-
-        this.ui.setSegmentMaterialCallback((material) => {
-            const seg = this.structure.selectedSegment;
-            if (seg) {
-                seg.setMaterial(material);
-                this.ui.updateSelection({ segment: seg });
-                this.markStructureDirty();
-            }
-        });
-
-        this.ui.setSegmentStiffnessCallback((stiffness) => {
-            const seg = this.structure.selectedSegment;
-            if (seg) {
-                seg.stiffness = stiffness;
-                this.markStructureDirty();
-            }
-        });
-
-        this.ui.setSegmentDampingCallback((damping) => {
-            const seg = this.structure.selectedSegment;
-            if (seg) {
-                seg.damping = damping;
-                this.markStructureDirty();
-            }
-        });
 
         // Wire up save/load callbacks
         this.ui.setSaveCallback(() => this.saveState());

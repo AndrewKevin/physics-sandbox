@@ -152,6 +152,23 @@ export class ContextMenuController {
             }
         };
 
+        // Muscle property callbacks
+        this.segmentPopup.onContractionRatioChange = () => {
+            const segment = this.structure.selectedSegment;
+            if (segment) {
+                this.ui.updateSelection({ segment });
+                this.onStatsUpdate();
+            }
+        };
+
+        this.segmentPopup.onBreakOnOverloadChange = () => {
+            const segment = this.structure.selectedSegment;
+            if (segment) {
+                this.ui.updateSelection({ segment });
+                this.onStatsUpdate();
+            }
+        };
+
         this.segmentPopup.onAddNode = (segment, clickPos) => {
             if (this.structure.segments.includes(segment)) {
                 const position = getPositionOnSegment(segment, clickPos.x, clickPos.y);

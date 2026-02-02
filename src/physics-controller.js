@@ -115,10 +115,11 @@ export class PhysicsController {
             }
         }
 
-        // Add physics update listener for tension-only/compression-only behaviour
-        // and segment-attached weight force application
+        // Add physics update listener for tension-only/compression-only behaviour,
+        // muscle contraction, and segment-attached weight force application
         this.constraintModeHandler = () => {
             this.updateConstraintModes(structure);
+            this.applyMuscleContraction(structure);
             this.applySegmentWeightForces(structure);
         };
         Matter.Events.on(this.engine, 'beforeUpdate', this.constraintModeHandler);
@@ -155,10 +156,11 @@ export class PhysicsController {
             }
         }
 
-        // Clear constraints and reset slack state
+        // Clear constraints and reset runtime state
         for (const segment of structure.segments) {
             segment.constraint = null;
             segment.isSlack = false;
+            segment.isBroken = false;  // Reset broken state for next simulation
         }
 
         // Clear weight bodies and constraints
@@ -312,12 +314,19 @@ export class PhysicsController {
                 continue;
             }
 
-            // Calculate tolerance based on rest length
-            const tolerance = segment.restLength * PhysicsController.TOLERANCE_RATIO;
+            // For active muscles, use the constraint's current target length (which shrinks during contraction)
+            // For passive segments, use the original rest length
+            const material = MATERIALS[segment.material];
+            const referenceLength = material?.isActive
+                ? segment.constraint.length
+                : segment.restLength;
 
-            // Determine if in tension or compression
-            const inTension = segment.currentLength > segment.restLength + tolerance;
-            const inCompression = segment.currentLength < segment.restLength - tolerance;
+            // Calculate tolerance based on reference length
+            const tolerance = referenceLength * PhysicsController.TOLERANCE_RATIO;
+
+            // Determine if in tension or compression relative to reference
+            const inTension = segment.currentLength > referenceLength + tolerance;
+            const inCompression = segment.currentLength < referenceLength - tolerance;
 
             // Apply tension-only / compression-only logic
             const shouldBeSlack =
@@ -326,6 +335,57 @@ export class PhysicsController {
 
             segment.isSlack = shouldBeSlack;
             segment.constraint.stiffness = shouldBeSlack ? 0 : segment.stiffness;
+        }
+    }
+
+    /**
+     * Apply muscle contraction by adjusting constraint length.
+     * Muscles actively shorten toward their target length (contractionRatio * restLength).
+     * At 100% stress, muscle is overpowered and stops contracting.
+     * If breakOnOverload is enabled, muscle permanently breaks (goes slack).
+     * @param {Object} structure - Structure with segments array
+     */
+    applyMuscleContraction(structure) {
+        for (const segment of structure.segments) {
+            if (!segment.constraint || !segment.nodeA.body || !segment.nodeB.body) continue;
+
+            const material = MATERIALS[segment.material];
+            if (!material?.isActive) continue;
+
+            // If already broken, keep it slack
+            if (segment.isBroken) {
+                segment.constraint.stiffness = 0;
+                continue;
+            }
+
+            // Calculate target length (muscles can't stretch beyond 100% rest length)
+            const targetLength = segment.restLength * segment.contractionRatio;
+
+            const currentConstraintLength = segment.constraint.length;
+
+            // Check if muscle is overpowered (at max stress)
+            // When stress reaches 100%, the load exceeds muscle strength
+            const isOverpowered = segment.stress >= 1.0;
+
+            // If overloaded and breakOnOverload is enabled, break permanently
+            if (isOverpowered && segment.breakOnOverload) {
+                segment.isBroken = true;
+                segment.constraint.stiffness = 0;
+                continue;
+            }
+
+            if (!isOverpowered && currentConstraintLength > targetLength) {
+                // Contract: reduce constraint length toward target
+                // Rate determines how fast the muscle contracts
+                const contractionRate = 0.5;  // pixels per frame toward target
+                segment.constraint.length = Math.max(
+                    targetLength,
+                    currentConstraintLength - contractionRate
+                );
+            }
+
+            // Store muscle state for stress/effort calculation
+            segment.muscleTargetLength = targetLength;
         }
     }
 
