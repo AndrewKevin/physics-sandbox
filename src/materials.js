@@ -82,6 +82,30 @@ export const MATERIALS = {
         lineWidth: 3,
         pattern: 'solid',
         patternConfig: {}
+    },
+
+    muscle: {
+        // UI metadata
+        label: 'Muscle',
+        shortLabel: 'Mu',
+
+        // Physics properties
+        stiffness: 0.6,      // Moderate stiffness
+        damping: 0.15,       // Some internal damping
+        compressionOnly: false,
+        tensionOnly: true,   // Only pulls, can't push
+
+        // Active contraction properties
+        isActive: true,              // Generates force actively
+        contractionRatio: 0.7,       // Wants to be 70% of rest length
+        maxStress: 0.6,              // Yields above this stress level (0-1)
+        yieldRate: 0.02,             // How fast rest length increases when overstressed
+
+        // Visual properties
+        color: '#FF3AF2',    // Magenta (accent-1)
+        lineWidth: 5,
+        pattern: 'solid',
+        patternConfig: {}
     }
 };
 
@@ -89,7 +113,7 @@ export const MATERIALS = {
  * Material order for UI display (buttons, menus, selectors).
  * Add new materials here in the desired display order.
  */
-export const MATERIAL_ORDER = ['beam', 'spring', 'cable'];
+export const MATERIAL_ORDER = ['beam', 'spring', 'cable', 'muscle'];
 
 /**
  * Get all valid material keys.
@@ -119,17 +143,27 @@ export function getDefaultMaterial() {
 /**
  * Get physics properties for a material.
  * @param {string} key - Material key
- * @returns {{ stiffness: number, damping: number, compressionOnly: boolean, tensionOnly: boolean }}
+ * @returns {{ stiffness: number, damping: number, compressionOnly: boolean, tensionOnly: boolean, isActive?: boolean, contractionRatio?: number, maxStress?: number, yieldRate?: number }}
  */
 export function getMaterialPhysics(key) {
     const mat = MATERIALS[key] ?? MATERIALS.beam;
 
-    return {
+    const physics = {
         stiffness: mat.stiffness,
         damping: mat.damping,
         compressionOnly: mat.compressionOnly,
         tensionOnly: mat.tensionOnly
     };
+
+    // Include active contraction properties if present (muscle)
+    if (mat.isActive) {
+        physics.isActive = mat.isActive;
+        physics.contractionRatio = mat.contractionRatio;
+        physics.maxStress = mat.maxStress;
+        physics.yieldRate = mat.yieldRate;
+    }
+
+    return physics;
 }
 
 /**

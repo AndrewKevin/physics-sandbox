@@ -7,8 +7,8 @@ import { ContextMenu } from './context-menu.js';
 import { WeightPopup } from './weight-popup.js';
 import { NodePopup } from './node-popup.js';
 import { MultiNodePopup } from './multi-node-popup.js';
+import { SegmentPopup } from './segment-popup.js';
 import { getPositionOnSegment, snapToGrid, clampToCanvas } from './position-utils.js';
-import { MATERIALS, MATERIAL_ORDER } from './materials.js';
 
 export class ContextMenuController {
     /**
@@ -36,10 +36,12 @@ export class ContextMenuController {
         this.weightPopup = new WeightPopup();
         this.nodePopup = new NodePopup();
         this.multiNodePopup = new MultiNodePopup();
+        this.segmentPopup = new SegmentPopup();
 
         this.setupWeightPopupCallbacks();
         this.setupNodePopupCallbacks();
         this.setupMultiNodePopupCallbacks();
+        this.setupSegmentPopupCallbacks();
     }
 
     /**
@@ -141,6 +143,50 @@ export class ContextMenuController {
     }
 
     /**
+     * Set up callbacks for the segment popup.
+     */
+    setupSegmentPopupCallbacks() {
+        this.segmentPopup.onMaterialChange = (segment, material) => {
+            if (this.structure.segments.includes(segment)) {
+                this.onMaterialChange(segment, material);
+            }
+        };
+
+        this.segmentPopup.onAddNode = (segment, clickPos) => {
+            if (this.structure.segments.includes(segment)) {
+                const position = getPositionOnSegment(segment, clickPos.x, clickPos.y);
+                const { node } = this.structure.splitSegment(segment, position);
+                this.structure.selectNode(node);
+                this.ui.updateSelection({ node });
+                this.onStatsUpdate();
+            }
+        };
+
+        this.segmentPopup.onAddWeight = (segment, clickPos) => {
+            if (this.structure.segments.includes(segment)) {
+                const position = getPositionOnSegment(segment, clickPos.x, clickPos.y);
+                const weight = this.structure.addWeight(segment, position);
+                this.structure.selectWeight(weight);
+                this.ui.updateSelection({ weight });
+                this.onStatsUpdate();
+            }
+        };
+
+        this.segmentPopup.onDelete = (segment) => {
+            if (this.structure.segments.includes(segment)) {
+                this.structure.removeSegment(segment);
+                this.structure.clearSelection();
+                this.ui.updateSelection({});
+                this.onStatsUpdate();
+            }
+        };
+
+        this.segmentPopup.onClose = () => {
+            // Optionally handle popup close
+        };
+    }
+
+    /**
      * Handle right-click at a position.
      * @param {Event} event - The mouse event
      * @param {number} x - Canvas X position
@@ -201,80 +247,11 @@ export class ContextMenuController {
             this.ui.updateSelection({ node: item.element });
             this.nodePopup.show(item.element, event.clientX, event.clientY);
         } else if (item.type === 'segment') {
-            const menuItems = this.getSegmentMenuItems(item.element, pos.x, pos.y);
-            this.showContextMenu(event, menuItems);
+            this.closeAll();
+            this.structure.selectSegment(item.element);
+            this.ui.updateSelection({ segment: item.element });
+            this.segmentPopup.show(item.element, event.clientX, event.clientY, pos);
         }
-    }
-
-    /**
-     * Generate menu items for a segment.
-     * @param {Object} segment - The segment
-     * @param {number} clickX - Click X position
-     * @param {number} clickY - Click Y position
-     * @returns {Array} Menu items
-     */
-    getSegmentMenuItems(segment, clickX, clickY) {
-        // Build material selection items with check mark for current
-        const materialItems = MATERIAL_ORDER.map(key => {
-            const mat = MATERIALS[key];
-            const isCurrent = segment.material === key;
-            const check = isCurrent ? '✓' : ' ';
-            return {
-                label: `${check}  ${mat.label}`,
-                callback: () => {
-                    if (!isCurrent && this.structure.segments.includes(segment)) {
-                        this.onMaterialChange(segment, key);
-                    }
-                }
-            };
-        });
-
-        return [
-            ...materialItems,
-            'hr',
-            {
-                label: '⚙️  Edit Properties',
-                callback: () => {
-                    this.structure.selectSegment(segment);
-                    this.ui.updateSelection({ segment });
-                }
-            },
-            {
-                label: '📍  Add Node',
-                callback: () => {
-                    if (this.structure.segments.includes(segment)) {
-                        const position = getPositionOnSegment(segment, clickX, clickY);
-                        const { node } = this.structure.splitSegment(segment, position);
-                        this.structure.selectNode(node);
-                        this.ui.updateSelection({ node });
-                        this.onStatsUpdate();
-                    }
-                }
-            },
-            {
-                label: '⚖️  Add Weight',
-                callback: () => {
-                    if (this.structure.segments.includes(segment)) {
-                        const position = getPositionOnSegment(segment, clickX, clickY);
-                        const weight = this.structure.addWeight(segment, position);
-                        this.structure.selectWeight(weight);
-                        this.ui.updateSelection({ weight });
-                        this.onStatsUpdate();
-                    }
-                }
-            },
-            {
-                label: '✕  Delete Segment',
-                callback: () => {
-                    if (this.structure.segments.includes(segment)) {
-                        this.structure.removeSegment(segment);
-                        this.structure.clearSelection();
-                        this.ui.updateSelection({});
-                        this.onStatsUpdate();
-                    }
-                }
-            }
-        ];
     }
 
     /**
@@ -354,6 +331,9 @@ export class ContextMenuController {
         if (this.multiNodePopup?.isOpen()) {
             this.multiNodePopup.close();
         }
+        if (this.segmentPopup?.isOpen()) {
+            this.segmentPopup.close();
+        }
     }
 
     /**
@@ -389,11 +369,19 @@ export class ContextMenuController {
     }
 
     /**
+     * Check if segment popup is open.
+     * @returns {boolean}
+     */
+    isSegmentPopupOpen() {
+        return this.segmentPopup?.isOpen() ?? false;
+    }
+
+    /**
      * Check if any menu/popup is open.
      * @returns {boolean}
      */
     isAnyOpen() {
-        return this.isContextMenuOpen() || this.isWeightPopupOpen() || this.isNodePopupOpen() || this.isMultiNodePopupOpen();
+        return this.isContextMenuOpen() || this.isWeightPopupOpen() || this.isNodePopupOpen() || this.isMultiNodePopupOpen() || this.isSegmentPopupOpen();
     }
 
     /**
@@ -410,5 +398,13 @@ export class ContextMenuController {
      */
     get popupNode() {
         return this.nodePopup?.node ?? null;
+    }
+
+    /**
+     * Get the segment currently shown in popup (if any).
+     * @returns {Object|null}
+     */
+    get popupSegment() {
+        return this.segmentPopup?.segment ?? null;
     }
 }
