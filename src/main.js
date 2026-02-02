@@ -770,7 +770,9 @@ class PhysicsSandbox {
             showJointAngles: this.ui.showJointAngles,
             jointData,
             selectionBox: this.selectionBoxState,
-            pastePreview: this.pastePreviewState
+            pastePreview: this.pastePreviewState,
+            isHoveringElement: this.hover.hasHover,
+            isDragging: this.drag.isDragging
         });
 
         this.animationId = requestAnimationFrame(() => this.animate());

@@ -1,37 +1,33 @@
 /**
- * Segment Popup - Custom popup for segment properties
- * Matches the styling of NodePopup and WeightPopup
+ * Segment Popup - Popup for editing segment properties
+ * Extends PopupBase for shared lifecycle and scrubber handling
  */
 
+import { PopupBase } from './popup/popup-base.js';
 import { MATERIALS, MATERIAL_ORDER } from './materials.js';
+import { TERMS } from './terminology.js';
 
-export class SegmentPopup {
+export class SegmentPopup extends PopupBase {
     constructor() {
-        this.popup = null;
-        this.segment = null;
-        this.clickPos = null;  // Canvas position where right-click occurred
+        super();
+        this.clickPos = null; // Canvas position where right-click occurred
 
-        // Callbacks
+        // Segment-specific callbacks
         this.onMaterialChange = null;
+        this.onStiffnessChange = null;
+        this.onDampingChange = null;
         this.onContractionRatioChange = null;
         this.onBreakOnOverloadChange = null;
         this.onAddNode = null;
         this.onAddWeight = null;
-        this.onDelete = null;
-        this.onClose = null;
+    }
 
-        // Scrubber state
-        this.activeScrubber = null;
-        this.scrubStartX = 0;
-        this.scrubStartValue = 0;
-
-        // Bind handlers
-        this.handleClickOutside = this.handleClickOutside.bind(this);
-        this.handleKeyDown = this.handleKeyDown.bind(this);
-        this.handleMouseMove = this.handleMouseMove.bind(this);
-        this.handleMouseUp = this.handleMouseUp.bind(this);
-        this.handleTouchMove = this.handleTouchMove.bind(this);
-        this.handleTouchEnd = this.handleTouchEnd.bind(this);
+    /**
+     * Get the segment being edited.
+     * @returns {Object|null}
+     */
+    get segment() {
+        return this.target;
     }
 
     /**
@@ -42,27 +38,57 @@ export class SegmentPopup {
      * @param {Object} clickPos - Canvas position { x, y } where clicked
      */
     show(segment, clientX, clientY, clickPos) {
-        this.close();
-        this.segment = segment;
         this.clickPos = clickPos;
+        super.show(segment, clientX, clientY);
+    }
 
-        // Create popup element
-        this.popup = document.createElement('div');
-        this.popup.className = 'segment-popup';
-        this.popup.innerHTML = this.buildHTML(segment);
+    getClassName() {
+        return 'segment-popup';
+    }
 
-        // Position popup
-        document.body.appendChild(this.popup);
-        this.positionPopup(clientX, clientY);
+    getPropertyConfigs() {
+        return {
+            stiffness: {
+                min: 0,
+                max: 1,
+                sensitivity: 0.005,
+                format: v => v.toFixed(2)
+            },
+            damping: {
+                min: 0,
+                max: 1,
+                sensitivity: 0.005,
+                format: v => v.toFixed(2)
+            },
+            contractionRatio: {
+                min: 0.2,
+                max: 1.0,
+                sensitivity: 0.005,
+                format: v => `${Math.round(v * 100)}%`
+            }
+        };
+    }
 
-        // Bind events
-        this.bindEvents();
+    setTargetProperty(property, value) {
+        if (!this.target) return;
 
-        // Close on click outside or Escape (delayed to avoid immediate close)
-        setTimeout(() => {
-            document.addEventListener('mousedown', this.handleClickOutside);
-            document.addEventListener('keydown', this.handleKeyDown);
-        }, 10);
+        if (property === 'stiffness') {
+            this.target.stiffness = value;
+        } else if (property === 'damping') {
+            this.target.damping = value;
+        } else if (property === 'contractionRatio') {
+            this.target.setContractionRatio(value);
+        }
+    }
+
+    onPropertyChange(property, value) {
+        if (property === 'stiffness') {
+            this.onStiffnessChange?.(this.target?.stiffness);
+        } else if (property === 'damping') {
+            this.onDampingChange?.(this.target?.damping);
+        } else if (property === 'contractionRatio') {
+            this.onContractionRatioChange?.(this.target?.contractionRatio);
+        }
     }
 
     buildHTML(segment) {
@@ -81,25 +107,7 @@ export class SegmentPopup {
         }).join('');
 
         // Muscle-specific controls (only shown for active/muscle materials)
-        const muscleControls = isMuscle ? `
-            <div class="segment-popup-section segment-muscle-section">
-                <label class="segment-popup-label">Muscle Properties</label>
-                <div class="scrubber-row">
-                    <label class="scrubber-label">Target</label>
-                    <div class="scrubber" data-property="contractionRatio">
-                        <div class="scrubber-track">
-                            <div class="scrubber-thumb"></div>
-                        </div>
-                        <span class="scrubber-value">${Math.round(segment.contractionRatio * 100)}%</span>
-                    </div>
-                </div>
-                <label class="segment-popup-toggle">
-                    <input type="checkbox" data-property="breakOnOverload" ${segment.breakOnOverload ? 'checked' : ''}>
-                    <span class="toggle-label">Break on Overload</span>
-                    <span class="toggle-hint">Permanently go slack at 100% stress</span>
-                </label>
-            </div>
-        ` : '';
+        const muscleControls = isMuscle ? this.buildMuscleControls(segment) : '';
 
         return `
             <div class="segment-popup-header">
@@ -107,11 +115,16 @@ export class SegmentPopup {
                 <span class="segment-popup-material">${materialLabel}</span>
             </div>
             <div class="segment-popup-controls">
-                <div class="segment-popup-section">
+                <div class="segment-popup-section segment-material-section">
                     <label class="segment-popup-label">Material</label>
                     <div class="segment-material-selector">
                         ${materialButtons}
                     </div>
+                </div>
+                <div class="segment-popup-section segment-physics-section">
+                    <label class="segment-popup-label">Physics</label>
+                    ${this.renderScrubber('stiffness', 'Stiffness', segment.stiffness.toFixed(2), TERMS.stiffness)}
+                    ${this.renderScrubber('damping', 'Damping', segment.damping.toFixed(2), TERMS.damping)}
                 </div>
                 ${muscleControls}
                 <div class="segment-popup-action-row" data-action="add-node">
@@ -127,24 +140,18 @@ export class SegmentPopup {
         `;
     }
 
-    positionPopup(x, y) {
-        const popup = this.popup;
-        const rect = popup.getBoundingClientRect();
-        const padding = 10;
-
-        // Adjust position to keep popup in viewport
-        let left = x + padding;
-        let top = y + padding;
-
-        if (left + rect.width > window.innerWidth) {
-            left = x - rect.width - padding;
-        }
-        if (top + rect.height > window.innerHeight) {
-            top = y - rect.height - padding;
-        }
-
-        popup.style.left = `${Math.max(padding, left)}px`;
-        popup.style.top = `${Math.max(padding, top)}px`;
+    buildMuscleControls(segment) {
+        return `
+            <div class="segment-popup-section segment-muscle-section">
+                <label class="segment-popup-label">Muscle Properties</label>
+                ${this.renderScrubber('contractionRatio', 'Target', `${Math.round(segment.contractionRatio * 100)}%`, TERMS.contractionRatio)}
+                <label class="segment-popup-toggle">
+                    <input type="checkbox" data-property="breakOnOverload" ${segment.breakOnOverload ? 'checked' : ''}>
+                    <span class="toggle-label">Break on Overload</span>
+                    <span class="toggle-hint">${TERMS.breakOnOverload}</span>
+                </label>
+            </div>
+        `;
     }
 
     bindEvents() {
@@ -153,144 +160,44 @@ export class SegmentPopup {
         materialBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 const material = btn.dataset.material;
-                if (material !== this.segment.material) {
-                    this.onMaterialChange?.(this.segment, material);
-                    // Update UI to reflect change (including muscle controls visibility)
+                if (material !== this.target.material) {
+                    this.onMaterialChange?.(this.target, material);
                     this.updateMaterialSelection(material);
                 }
             });
         });
 
-        // Scrubbers - mouse and touch events (for muscle properties)
-        const scrubbers = this.popup.querySelectorAll('.scrubber');
-        scrubbers.forEach(scrubber => {
-            scrubber.addEventListener('mousedown', (e) => this.startScrub(e, scrubber));
-            scrubber.addEventListener('touchstart', (e) => this.startScrubTouch(e, scrubber), { passive: false });
-        });
-
         // Break on overload toggle
-        const breakToggle = this.popup.querySelector('[data-property="breakOnOverload"]');
-        breakToggle?.addEventListener('change', (e) => {
-            this.segment.setBreakOnOverload(e.target.checked);
-            this.onBreakOnOverloadChange?.(this.segment.breakOnOverload);
-        });
+        this.bindBreakOnOverloadToggle();
 
         // Add Node action
         const addNodeRow = this.popup.querySelector('[data-action="add-node"]');
         addNodeRow?.addEventListener('click', () => {
-            this.onAddNode?.(this.segment, this.clickPos);
+            this.onAddNode?.(this.target, this.clickPos);
             this.close();
         });
 
         // Add Weight action
         const addWeightRow = this.popup.querySelector('[data-action="add-weight"]');
         addWeightRow?.addEventListener('click', () => {
-            this.onAddWeight?.(this.segment, this.clickPos);
+            this.onAddWeight?.(this.target, this.clickPos);
             this.close();
         });
 
         // Delete action
         const deleteRow = this.popup.querySelector('[data-action="delete"]');
         deleteRow?.addEventListener('click', () => {
-            this.onDelete?.(this.segment);
+            this.onDelete?.(this.target);
             this.close();
         });
     }
 
-    startScrub(e, scrubber) {
-        e.preventDefault();
-        this.activeScrubber = scrubber;
-        this.scrubStartX = e.clientX;
-
-        const property = scrubber.dataset.property;
-        this.scrubStartValue = this.segment[property];
-
-        // Add visual feedback
-        scrubber.classList.add('scrubbing');
-
-        document.addEventListener('mousemove', this.handleMouseMove);
-        document.addEventListener('mouseup', this.handleMouseUp);
-    }
-
-    startScrubTouch(e, scrubber) {
-        if (e.touches.length !== 1) return;
-        e.preventDefault();
-
-        this.activeScrubber = scrubber;
-        this.scrubStartX = e.touches[0].clientX;
-
-        const property = scrubber.dataset.property;
-        this.scrubStartValue = this.segment[property];
-
-        // Add visual feedback
-        scrubber.classList.add('scrubbing');
-
-        document.addEventListener('touchmove', this.handleTouchMove, { passive: false });
-        document.addEventListener('touchend', this.handleTouchEnd);
-    }
-
-    handleMouseMove(e) {
-        if (!this.activeScrubber) return;
-
-        const dx = e.clientX - this.scrubStartX;
-        this.updateScrubValue(dx);
-    }
-
-    handleTouchMove(e) {
-        if (!this.activeScrubber || e.touches.length !== 1) return;
-        e.preventDefault();
-
-        const dx = e.touches[0].clientX - this.scrubStartX;
-        this.updateScrubValue(dx);
-    }
-
-    updateScrubValue(dx) {
-        const property = this.activeScrubber.dataset.property;
-        const thumb = this.activeScrubber.querySelector('.scrubber-thumb');
-        const valueEl = this.activeScrubber.querySelector('.scrubber-value');
-
-        // Move thumb (clamped to track width)
-        const maxOffset = 30;
-        const thumbOffset = Math.max(-maxOffset, Math.min(maxOffset, dx));
-        thumb.style.transform = `translateX(${thumbOffset}px)`;
-
-        // Sensitivity: 1 pixel = 0.005 (full range over ~200px)
-        const sensitivity = 0.005;
-        const newValue = this.scrubStartValue + dx * sensitivity;
-
-        // Apply to segment with appropriate setter
-        if (property === 'contractionRatio') {
-            this.segment.setContractionRatio(newValue);
-            valueEl.textContent = `${Math.round(this.segment.contractionRatio * 100)}%`;
-            this.onContractionRatioChange?.(this.segment.contractionRatio);
-        }
-    }
-
-    handleMouseUp() {
-        this.endScrub();
-        document.removeEventListener('mousemove', this.handleMouseMove);
-        document.removeEventListener('mouseup', this.handleMouseUp);
-    }
-
-    handleTouchEnd() {
-        this.endScrub();
-        document.removeEventListener('touchmove', this.handleTouchMove);
-        document.removeEventListener('touchend', this.handleTouchEnd);
-    }
-
-    endScrub() {
-        if (!this.activeScrubber) return;
-
-        // Spring thumb back to center
-        const thumb = this.activeScrubber.querySelector('.scrubber-thumb');
-        thumb.style.transform = 'translateX(0)';
-
-        // Update start value for next drag
-        const property = this.activeScrubber.dataset.property;
-        this.scrubStartValue = this.segment[property];
-
-        this.activeScrubber.classList.remove('scrubbing');
-        this.activeScrubber = null;
+    bindBreakOnOverloadToggle() {
+        const breakToggle = this.popup.querySelector('[data-property="breakOnOverload"]');
+        breakToggle?.addEventListener('change', (e) => {
+            this.target.setBreakOnOverload(e.target.checked);
+            this.onBreakOnOverloadChange?.(this.target.breakOnOverload);
+        });
     }
 
     /**
@@ -310,88 +217,52 @@ export class SegmentPopup {
             materialLabel.textContent = mat?.label || newMaterial;
         }
 
+        // Update physics scrubbers (stiffness/damping reset to material defaults)
+        this.updateScrubberDisplay('stiffness', this.target.stiffness.toFixed(2));
+        this.updateScrubberDisplay('damping', this.target.damping.toFixed(2));
+
         // Show/hide muscle controls based on material type
         const isMuscle = MATERIALS[newMaterial]?.isActive;
         let muscleSection = this.popup.querySelector('.segment-muscle-section');
 
         if (isMuscle && !muscleSection) {
             // Add muscle controls if switching to muscle
-            const muscleHTML = `
-                <div class="segment-popup-section segment-muscle-section">
-                    <label class="segment-popup-label">Muscle Properties</label>
-                    <div class="scrubber-row">
-                        <label class="scrubber-label">Target</label>
-                        <div class="scrubber" data-property="contractionRatio">
-                            <div class="scrubber-track">
-                                <div class="scrubber-thumb"></div>
-                            </div>
-                            <span class="scrubber-value">${Math.round(this.segment.contractionRatio * 100)}%</span>
-                        </div>
-                    </div>
-                    <label class="segment-popup-toggle">
-                        <input type="checkbox" data-property="breakOnOverload" ${this.segment.breakOnOverload ? 'checked' : ''}>
-                        <span class="toggle-label">Break on Overload</span>
-                        <span class="toggle-hint">Permanently go slack at 100% stress</span>
-                    </label>
-                </div>
-            `;
+            const muscleHTML = this.buildMuscleControls(this.target);
 
-            // Insert after material section
-            const materialSection = this.popup.querySelector('.segment-popup-section');
-            materialSection.insertAdjacentHTML('afterend', muscleHTML);
+            // Insert after physics section
+            const physicsSection = this.popup.querySelector('.segment-physics-section');
+            physicsSection.insertAdjacentHTML('afterend', muscleHTML);
 
-            // Bind scrubber events for new controls
+            // Bind new scrubber to controller
             muscleSection = this.popup.querySelector('.segment-muscle-section');
             const scrubbers = muscleSection.querySelectorAll('.scrubber');
-            scrubbers.forEach(scrubber => {
-                scrubber.addEventListener('mousedown', (e) => this.startScrub(e, scrubber));
-                scrubber.addEventListener('touchstart', (e) => this.startScrubTouch(e, scrubber), { passive: false });
-            });
+            scrubbers.forEach(el => this.scrubberController?.bindToElement(el));
 
-            // Bind break toggle event
-            const breakToggle = muscleSection.querySelector('[data-property="breakOnOverload"]');
-            breakToggle?.addEventListener('change', (e) => {
-                this.segment.setBreakOnOverload(e.target.checked);
-                this.onBreakOnOverloadChange?.(this.segment.breakOnOverload);
-            });
+            // Bind break toggle
+            this.bindBreakOnOverloadToggle();
         } else if (!isMuscle && muscleSection) {
             // Remove muscle controls if switching away from muscle
             muscleSection.remove();
+            // Clean up stale scrubber bindings
+            this.scrubberController?.cleanupRemovedElements();
         }
     }
 
-    handleClickOutside(e) {
-        if (this.popup && !this.popup.contains(e.target)) {
-            this.close();
-        }
-    }
-
-    handleKeyDown(e) {
-        if (e.key === 'Escape') {
-            this.close();
+    /**
+     * Update the displayed value of a scrubber.
+     * @param {string} property - Property name (data-property attribute)
+     * @param {string} formattedValue - Formatted value string to display
+     */
+    updateScrubberDisplay(property, formattedValue) {
+        const scrubber = this.popup?.querySelector(`.scrubber[data-property="${property}"]`);
+        const valueEl = scrubber?.querySelector('.scrubber-value');
+        if (valueEl) {
+            valueEl.textContent = formattedValue;
         }
     }
 
     close() {
-        if (this.popup) {
-            this.popup.remove();
-            this.popup = null;
-        }
-        this.segment = null;
         this.clickPos = null;
-        this.activeScrubber = null;
-
-        document.removeEventListener('mousedown', this.handleClickOutside);
-        document.removeEventListener('keydown', this.handleKeyDown);
-        document.removeEventListener('mousemove', this.handleMouseMove);
-        document.removeEventListener('mouseup', this.handleMouseUp);
-        document.removeEventListener('touchmove', this.handleTouchMove);
-        document.removeEventListener('touchend', this.handleTouchEnd);
-
-        this.onClose?.();
-    }
-
-    isOpen() {
-        return this.popup !== null;
+        super.close();
     }
 }

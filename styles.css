@@ -80,7 +80,7 @@ body::after {
 
 #app {
     display: grid;
-    grid-template-columns: var(--panel-width) 1fr var(--panel-width);
+    grid-template-columns: var(--panel-width) 1fr;
     grid-template-rows: 100vh;
     gap: 0;
     position: relative;
@@ -88,35 +88,24 @@ body::after {
 }
 
 /* ============================================
-   PANELS (Left & Right)
+   PANELS
    ============================================ */
 
-#left-panel, #right-panel {
+#left-panel {
     background: rgba(45, 27, 78, 0.85);
     backdrop-filter: blur(12px);
     padding: var(--panel-padding);
     overflow-y: auto;
     border: 4px solid var(--accent-1);
-    position: relative;
-}
-
-#left-panel {
     border-right-width: 4px;
     border-left: none;
     border-top: none;
     border-bottom: none;
-}
-
-#right-panel {
-    border-left-width: 4px;
-    border-right: none;
-    border-top: none;
-    border-bottom: none;
-    border-color: var(--accent-2);
+    position: relative;
 }
 
 /* Panel pattern overlay */
-#left-panel::before, #right-panel::before {
+#left-panel::before {
     content: '';
     position: absolute;
     inset: 0;
@@ -322,14 +311,11 @@ body::after {
     position: relative;
     background: var(--bg);
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
 }
 
 #physics-canvas {
     display: block;
-    width: 100%;
-    flex: 1;
+    /* Dimensions controlled by JavaScript - do not set width/height here */
 }
 
 #canvas-overlay {
@@ -492,7 +478,74 @@ body::after {
 }
 
 /* ============================================
-   RIGHT PANEL - OPTIONS & INFO
+   SELECTION OVERLAY (top right of canvas)
+   ============================================ */
+
+.selection-overlay {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    min-width: 180px;
+    max-width: 240px;
+    padding: 14px 16px;
+    background: rgba(45, 27, 78, 0.92);
+    backdrop-filter: blur(12px);
+    border: 2px solid var(--accent-2);
+    border-radius: 10px;
+    box-shadow:
+        0 4px 20px rgba(0, 0, 0, 0.4),
+        0 0 12px rgba(0, 245, 212, 0.2);
+    z-index: 100;
+    font-size: 13px;
+    line-height: 1.5;
+    pointer-events: auto;
+}
+
+.selection-overlay p {
+    margin: 0 0 4px 0;
+}
+
+.selection-overlay p:last-child {
+    margin-bottom: 0;
+}
+
+.selection-overlay strong {
+    color: var(--accent-2);
+    font-weight: 700;
+}
+
+.selection-overlay .empty-state {
+    margin: 0;
+}
+
+.selection-overlay .hint-text {
+    margin-top: 8px;
+    margin-bottom: 0;
+}
+
+/* Multi-select actions in overlay */
+.selection-overlay .multi-select-actions {
+    margin-top: 10px;
+}
+
+.selection-overlay .bulk-action-btn {
+    padding: 8px 10px;
+    font-size: 12px;
+}
+
+.selection-overlay .bulk-mass-control {
+    margin-top: 10px;
+    padding: 8px;
+}
+
+.selection-overlay .bulk-mass-input-row input {
+    width: 70px;
+    padding: 6px 8px;
+    font-size: 13px;
+}
+
+/* ============================================
+   INFO BOX & STATES
    ============================================ */
 
 .info-box {
@@ -724,18 +777,13 @@ body::after {
 @media (max-width: 900px) {
     #app {
         grid-template-columns: 1fr;
-        grid-template-rows: auto 1fr auto;
+        grid-template-rows: auto 1fr;
     }
 
-    #left-panel, #right-panel {
+    #left-panel {
         max-height: 300px;
         border: none;
         border-bottom: 4px solid var(--accent-1);
-    }
-
-    #right-panel {
-        border-bottom: none;
-        border-top: 4px solid var(--accent-2);
     }
 
     .mode-buttons, .material-buttons {
@@ -747,45 +795,118 @@ body::after {
         flex: 1;
         min-width: 120px;
     }
+
+    /* Selection overlay adjustments for mobile */
+    .selection-overlay {
+        top: 8px;
+        right: 8px;
+        min-width: 160px;
+        max-width: 200px;
+        padding: 10px 12px;
+        font-size: 12px;
+    }
 }
 
 /* ============================================
-   WEIGHT POPUP
+   POPUP SHARED STYLES
    ============================================ */
 
-.weight-popup {
+/* Base popup container - all popups share these properties */
+.weight-popup,
+.node-popup,
+.segment-popup {
     position: fixed;
     min-width: 200px;
+    max-width: 260px;
     background: rgba(45, 27, 78, 0.98);
     backdrop-filter: blur(12px);
-    border: 3px solid var(--accent-4);
+    border: 3px solid var(--popup-color, var(--accent-5));
     border-radius: 12px;
     box-shadow:
         0 8px 32px rgba(0, 0, 0, 0.4),
-        0 0 20px rgba(255, 107, 53, 0.3);
+        0 0 20px var(--popup-glow, rgba(123, 47, 255, 0.3));
     font-family: var(--font-body);
     z-index: 1000;
-    overflow: hidden;
+    overflow: visible;
 }
 
-.weight-popup-header {
+/* Popup colour themes via CSS custom properties */
+.weight-popup {
+    --popup-color: var(--accent-4);
+    --popup-glow: rgba(255, 107, 53, 0.3);
+    --popup-bg: rgba(255, 107, 53, 0.2);
+}
+
+.node-popup {
+    --popup-color: var(--accent-2);
+    --popup-glow: rgba(0, 245, 212, 0.3);
+    --popup-bg: rgba(0, 245, 212, 0.2);
+}
+
+.segment-popup {
+    --popup-color: var(--accent-3);
+    --popup-glow: rgba(255, 230, 0, 0.3);
+    --popup-bg: rgba(255, 230, 0, 0.15);
+    min-width: 220px;
+}
+
+/* Shared header styles */
+.weight-popup-header,
+.node-popup-header,
+.segment-popup-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 12px 16px;
-    background: rgba(255, 107, 53, 0.2);
-    border-bottom: 2px solid var(--accent-4);
+    background: var(--popup-bg);
+    border-bottom: 2px solid var(--popup-color);
 }
 
-.weight-popup-title {
+/* Shared title styles */
+.weight-popup-title,
+.node-popup-title,
+.segment-popup-title {
     font-family: var(--font-heading);
     font-weight: 700;
     font-size: 14px;
-    color: var(--accent-4);
+    color: var(--popup-color);
 }
 
-.weight-popup-delete-row {
-    margin-top: 8px;
+/* Shared controls container */
+.weight-popup-controls,
+.node-popup-controls,
+.segment-popup-controls {
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Shared action row styles */
+.node-popup-action-row,
+.segment-popup-action-row {
+    padding: 10px 12px;
+    background: rgba(123, 47, 255, 0.1);
+    border: 2px solid var(--accent-5);
+    border-radius: 8px;
+    color: var(--accent-5);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease-out;
+}
+
+.node-popup-action-row:hover,
+.segment-popup-action-row:hover {
+    background: var(--accent-5);
+    color: var(--bg);
+}
+
+/* Shared delete action row (magenta) */
+.weight-popup-delete-row,
+.node-popup-delete-row,
+.segment-popup-delete-row {
     padding: 10px 12px;
     background: rgba(255, 58, 242, 0.1);
     border: 2px solid var(--accent-1);
@@ -798,19 +919,89 @@ body::after {
     transition: all 0.15s ease-out;
 }
 
-.weight-popup-delete-row:hover {
+.weight-popup-delete-row:hover,
+.node-popup-delete-row:hover,
+.segment-popup-delete-row:hover {
     background: var(--accent-1);
     color: var(--bg);
 }
 
-.weight-popup-controls {
-    padding: 12px 16px;
+/* Section and label styles (currently segment-specific) */
+.segment-popup-section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
 }
 
-/* Scrubber Control */
+.segment-popup-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+/* Toggle styles (currently segment-specific, could be generalised if needed) */
+.segment-popup-toggle {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    grid-template-rows: auto auto;
+    gap: 2px 8px;
+    padding: 8px 10px;
+    margin: 4px 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: all 0.2s ease-out;
+}
+
+.segment-popup-toggle:hover {
+    border-color: var(--accent-1);
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.segment-popup-toggle input[type="checkbox"] {
+    grid-row: span 2;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent-1);
+    cursor: pointer;
+    align-self: center;
+}
+
+.segment-popup-toggle .toggle-label {
+    font-weight: 600;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.9);
+    user-select: none;
+}
+
+.segment-popup-toggle .toggle-hint {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    user-select: none;
+}
+
+/* Physics section styling */
+.segment-physics-section {
+    padding-top: 8px;
+    border-top: 1px solid rgba(123, 47, 255, 0.3);
+}
+
+.segment-physics-section .scrubber-row {
+    padding: 4px 0;
+}
+
+.segment-physics-section .scrubber-label {
+    min-width: 60px;
+    color: var(--accent-5);
+}
+
+/* ============================================
+   SCRUBBER CONTROL (shared across all popups)
+   ============================================ */
+
 .scrubber-row {
     display: flex;
     flex-direction: column;
@@ -823,6 +1014,69 @@ body::after {
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: rgba(255, 255, 255, 0.6);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Term with tooltip (dotted underline) */
+.term {
+    position: relative;
+    border-bottom: 1px dotted rgba(255, 255, 255, 0.4);
+    cursor: help;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.term:hover {
+    border-bottom-color: var(--accent-2);
+    color: var(--accent-2);
+}
+
+.term::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 0;
+    width: max-content;
+    max-width: 200px;
+    padding: 8px 12px;
+    background: rgba(13, 13, 26, 0.98);
+    border: 2px solid var(--accent-2);
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.9);
+    text-transform: none;
+    letter-spacing: normal;
+    white-space: normal;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(0, 245, 212, 0.2);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s, visibility 0.15s;
+    z-index: 1100;
+    pointer-events: none;
+}
+
+/* Arrow pointing down */
+.term::before {
+    content: '';
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: var(--accent-2);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s, visibility 0.15s;
+    z-index: 1100;
+}
+
+.term:hover::after,
+.term:hover::before {
+    opacity: 1;
+    visibility: visible;
 }
 
 .scrubber {
@@ -856,7 +1110,7 @@ body::after {
 .scrubber-thumb {
     position: absolute;
     left: 50%;
-    margin-left: -4px;  /* Half of width (8px) to center */
+    margin-left: -4px;  /* Half of width (8px) to centre */
     width: 8px;
     height: 16px;
     background: var(--accent-3);
@@ -892,105 +1146,9 @@ body::after {
     color: rgba(255, 255, 255, 0.5);
 }
 
-/* Node Popup (similar to Weight Popup) */
-.node-popup {
-    position: fixed;
-    min-width: 200px;
-    background: rgba(45, 27, 78, 0.98);
-    backdrop-filter: blur(12px);
-    border: 3px solid var(--accent-2);
-    border-radius: 12px;
-    box-shadow:
-        0 8px 32px rgba(0, 0, 0, 0.4),
-        0 0 20px rgba(0, 245, 212, 0.3);
-    font-family: var(--font-body);
-    z-index: 1000;
-    overflow: hidden;
-}
-
-.node-popup-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    background: rgba(0, 245, 212, 0.2);
-    border-bottom: 2px solid var(--accent-2);
-}
-
-.node-popup-title {
-    font-family: var(--font-heading);
-    font-weight: 700;
-    font-size: 14px;
-    color: var(--accent-2);
-}
-
-.node-popup-controls {
-    padding: 12px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.node-popup-action-row {
-    padding: 10px 12px;
-    background: rgba(123, 47, 255, 0.1);
-    border: 2px solid var(--accent-5);
-    border-radius: 8px;
-    color: var(--accent-5);
-    font-size: 14px;
-    font-weight: 600;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.15s ease-out;
-}
-
-.node-popup-action-row:hover {
-    background: var(--accent-5);
-    color: var(--bg);
-}
-
-.node-popup-delete-row {
-    background: rgba(255, 58, 242, 0.1);
-    border-color: var(--accent-1);
-    color: var(--accent-1);
-}
-
-.node-popup-delete-row:hover {
-    background: var(--accent-1);
-    color: var(--bg);
-}
-
-/* Segment Popup (similar to Node/Weight Popup) */
-.segment-popup {
-    position: fixed;
-    min-width: 220px;
-    background: rgba(45, 27, 78, 0.98);
-    backdrop-filter: blur(12px);
-    border: 3px solid var(--accent-3);
-    border-radius: 12px;
-    box-shadow:
-        0 8px 32px rgba(0, 0, 0, 0.4),
-        0 0 20px rgba(255, 230, 0, 0.3);
-    font-family: var(--font-body);
-    z-index: 1000;
-    overflow: hidden;
-}
-
-.segment-popup-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    background: rgba(255, 230, 0, 0.15);
-    border-bottom: 2px solid var(--accent-3);
-}
-
-.segment-popup-title {
-    font-family: var(--font-heading);
-    font-weight: 700;
-    font-size: 14px;
-    color: var(--accent-3);
-}
+/* ============================================
+   SEGMENT POPUP SPECIFIC
+   ============================================ */
 
 .segment-popup-material {
     font-size: 12px;
@@ -999,27 +1157,6 @@ body::after {
     padding: 2px 8px;
     background: rgba(0, 0, 0, 0.3);
     border-radius: 4px;
-}
-
-.segment-popup-controls {
-    padding: 12px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.segment-popup-section {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.segment-popup-label {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: rgba(255, 255, 255, 0.6);
 }
 
 .segment-material-selector {
@@ -1091,76 +1228,6 @@ body::after {
 .segment-muscle-section .scrubber-label {
     min-width: 45px;
     color: var(--accent-1);
-}
-
-.segment-popup-action-row {
-    padding: 10px 12px;
-    background: rgba(123, 47, 255, 0.1);
-    border: 2px solid var(--accent-5);
-    border-radius: 8px;
-    color: var(--accent-5);
-    font-size: 14px;
-    font-weight: 600;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.15s ease-out;
-}
-
-.segment-popup-action-row:hover {
-    background: var(--accent-5);
-    color: var(--bg);
-}
-
-.segment-popup-delete-row {
-    background: rgba(255, 58, 242, 0.1);
-    border-color: var(--accent-1);
-    color: var(--accent-1);
-}
-
-.segment-popup-delete-row:hover {
-    background: var(--accent-1);
-    color: var(--bg);
-}
-
-.segment-popup-toggle {
-    display: grid;
-    grid-template-columns: 20px 1fr;
-    grid-template-rows: auto auto;
-    gap: 2px 8px;
-    padding: 8px 10px;
-    margin: 4px 0;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    background: rgba(0, 0, 0, 0.2);
-    cursor: pointer;
-    transition: all 0.2s ease-out;
-}
-
-.segment-popup-toggle:hover {
-    border-color: var(--accent-1);
-    background: rgba(0, 0, 0, 0.4);
-}
-
-.segment-popup-toggle input[type="checkbox"] {
-    grid-row: span 2;
-    width: 18px;
-    height: 18px;
-    accent-color: var(--accent-1);
-    cursor: pointer;
-    align-self: center;
-}
-
-.segment-popup-toggle .toggle-label {
-    font-weight: 600;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.9);
-    user-select: none;
-}
-
-.segment-popup-toggle .toggle-hint {
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.5);
-    user-select: none;
 }
 
 /* ==========================================
