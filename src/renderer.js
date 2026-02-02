@@ -42,8 +42,12 @@ export class Renderer {
         const container = this.canvas.parentElement;
         this.width = container.clientWidth;
         this.height = container.clientHeight;
+
+        // Set both buffer and CSS dimensions to match (prevents coordinate scaling)
         this.canvas.width = this.width;
         this.canvas.height = this.height;
+        this.canvas.style.width = `${this.width}px`;
+        this.canvas.style.height = `${this.height}px`;
     }
 
     clear() {
@@ -412,12 +416,14 @@ export class Renderer {
      * @param {Node[]} selectedNodes - Array of selected nodes
      * @param {number} endX - Cursor X position
      * @param {number} endY - Cursor Y position
+     * @param {boolean} showGhostNode - Whether to show ghost node at cursor
      */
-    drawConnectionPreview(selectedNodes, endX, endY) {
+    drawConnectionPreview(selectedNodes, endX, endY, showGhostNode = true) {
         if (!selectedNodes || selectedNodes.length === 0) return;
 
         const ctx = this.ctx;
 
+        // Draw connector lines
         ctx.strokeStyle = 'rgba(0, 245, 212, 0.5)';
         ctx.lineWidth = 3;
         ctx.setLineDash([10, 10]);
@@ -430,6 +436,30 @@ export class Renderer {
         }
 
         ctx.setLineDash([]);
+
+        // Draw ghost node at cursor position
+        if (showGhostNode) {
+            const radius = Node.radius;
+
+            ctx.globalAlpha = 0.5;
+
+            // Glow
+            ctx.shadowColor = this.colors.node;
+            ctx.shadowBlur = 12;
+
+            // Ghost node circle
+            ctx.fillStyle = this.colors.node;
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+
+            ctx.beginPath();
+            ctx.arc(endX, endY, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+        }
     }
 
     drawStressLabel(segment, simulating = false) {
@@ -734,7 +764,9 @@ export class Renderer {
             showJointAngles = false,
             jointData = null,
             selectionBox = null,
-            pastePreview = null
+            pastePreview = null,
+            isHoveringElement = false,
+            isDragging = false
         } = state;
 
         this.clear();
@@ -771,10 +803,12 @@ export class Renderer {
         }
 
         // Draw connection preview from all selected nodes to cursor
-        // (but not during paste preview)
+        // (but not during paste preview or dragging)
         const selectedNodes = structure.selectedNodes;
-        if (!simulating && selectedNodes.length > 0 && !pastePreview) {
-            this.drawConnectionPreview(selectedNodes, mouseX, mouseY);
+        if (!simulating && selectedNodes.length > 0 && !pastePreview && !isDragging) {
+            // Show ghost node only when hovering empty space (not an element)
+            const showGhostNode = !isHoveringElement;
+            this.drawConnectionPreview(selectedNodes, mouseX, mouseY, showGhostNode);
         }
 
         // Draw selection box overlay (on top of everything)
