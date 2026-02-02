@@ -24,6 +24,7 @@ export class Node {
         this.y = y;
         this.fixed = false;
         this.mass = Node.defaultMass;
+        this.angularStiffness = Node.defaultAngularStiffness;  // Joint stiffness (0 = free hinge, 1 = locked)
         this.body = null;  // Matter.js body reference
         this.selected = false;
         this.hovered = false;
@@ -34,6 +35,7 @@ export class Node {
     static minMass = 0.1;
     static maxMass = 50;
     static defaultMass = 5;
+    static defaultAngularStiffness = 0.5;
 
     setFixed(fixed) {
         this.fixed = fixed;
@@ -47,6 +49,10 @@ export class Node {
         if (this.body) {
             Matter.Body.setMass(this.body, this.mass);
         }
+    }
+
+    setAngularStiffness(value) {
+        this.angularStiffness = Math.max(0, Math.min(1, value));
     }
 
     updatePosition(x, y) {
@@ -576,6 +582,16 @@ export class StructureManager {
     }
 
     /**
+     * Find all segments connected to a given node.
+     * Used for joint angle calculations.
+     * @param {Node} node - The node to check
+     * @returns {Segment[]} Array of segments connected to the node
+     */
+    getSegmentsAtNode(node) {
+        return this.segments.filter(seg => seg.nodeA === node || seg.nodeB === node);
+    }
+
+    /**
      * Find all segments where both endpoints are in the given node set.
      * Used for copy/paste to get segments between selected nodes.
      * @param {Node[]} nodes - Array of nodes to check
@@ -662,7 +678,8 @@ export class StructureManager {
                 x: node.x,
                 y: node.y,
                 fixed: node.fixed,
-                mass: node.mass
+                mass: node.mass,
+                angularStiffness: node.angularStiffness
             })),
             segments: this.segments.map(segment => ({
                 nodeAIndex: nodeIndexMap.get(segment.nodeA),
@@ -695,6 +712,7 @@ export class StructureManager {
             const node = this.addNode(nodeData.x, nodeData.y);
             node.fixed = nodeData.fixed;
             node.mass = nodeData.mass ?? Node.defaultMass;
+            node.angularStiffness = nodeData.angularStiffness ?? Node.defaultAngularStiffness;
         }
 
         // Restore segments (referencing restored nodes by index)

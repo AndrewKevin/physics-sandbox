@@ -30,6 +30,7 @@ export class UIController {
             segmentTension: this.getElement('segment-tension'),
             viewSnapToGrid: this.getElement('view-snap-to-grid'),
             viewStressLabels: this.getElement('view-stress-labels'),
+            viewJointAngles: this.getElement('view-joint-angles'),
             statNodes: this.getElement('stat-nodes'),
             statSegments: this.getElement('stat-segments'),
             statWeights: this.getElement('stat-weights'),
@@ -113,6 +114,10 @@ export class UIController {
         });
 
         this.elements.viewStressLabels?.addEventListener('change', () => {
+            this.onViewSettingsChange?.();
+        });
+
+        this.elements.viewJointAngles?.addEventListener('change', () => {
             this.onViewSettingsChange?.();
         });
 
@@ -400,25 +405,30 @@ export class UIController {
         return this.elements.viewStressLabels?.checked ?? false;
     }
 
+    get showJointAngles() {
+        return this.elements.viewJointAngles?.checked ?? false;
+    }
+
     get snapToGrid() {
         return this.elements.viewSnapToGrid?.checked ?? false;
     }
 
     /**
      * Get current view settings for persistence.
-     * @returns {Object} View settings { currentMaterial, snapToGrid, showStressLabels }
+     * @returns {Object} View settings { currentMaterial, snapToGrid, showStressLabels, showJointAngles }
      */
     getViewSettings() {
         return {
             currentMaterial: this.currentMaterial,
             snapToGrid: this.snapToGrid,
-            showStressLabels: this.showStressLabels
+            showStressLabels: this.showStressLabels,
+            showJointAngles: this.showJointAngles
         };
     }
 
     /**
      * Apply loaded view settings.
-     * @param {Object} settings - Settings { currentMaterial, snapToGrid, showStressLabels }
+     * @param {Object} settings - Settings { currentMaterial, snapToGrid, showStressLabels, showJointAngles }
      */
     applyViewSettings(settings) {
         if (settings.currentMaterial) {
@@ -436,6 +446,10 @@ export class UIController {
 
         if (this.elements.viewStressLabels) {
             this.elements.viewStressLabels.checked = settings.showStressLabels ?? false;
+        }
+
+        if (this.elements.viewJointAngles) {
+            this.elements.viewJointAngles.checked = settings.showJointAngles ?? false;
         }
     }
 

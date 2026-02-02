@@ -30,7 +30,7 @@ export function isStorageAvailable() {
 /**
  * Save view settings to storage.
  * @param {Storage} storage - Storage interface (localStorage or mock)
- * @param {Object} settings - Settings object { currentMaterial, snapToGrid, showStressLabels }
+ * @param {Object} settings - Settings object { currentMaterial, snapToGrid, showStressLabels, showJointAngles }
  * @returns {boolean} True if saved successfully, false otherwise
  */
 export function saveViewSettings(storage, settings) {
@@ -39,7 +39,8 @@ export function saveViewSettings(storage, settings) {
             version: CURRENT_VERSION,
             currentMaterial: settings.currentMaterial,
             snapToGrid: settings.snapToGrid,
-            showStressLabels: settings.showStressLabels
+            showStressLabels: settings.showStressLabels,
+            showJointAngles: settings.showJointAngles
         };
         storage.setItem(STORAGE_KEYS.VIEW_SETTINGS, JSON.stringify(data));
         return true;
@@ -83,7 +84,8 @@ function migrateViewSettings(data) {
     return {
         currentMaterial: material,
         snapToGrid: Boolean(data.snapToGrid),
-        showStressLabels: Boolean(data.showStressLabels)
+        showStressLabels: Boolean(data.showStressLabels),
+        showJointAngles: Boolean(data.showJointAngles)
     };
 }
 

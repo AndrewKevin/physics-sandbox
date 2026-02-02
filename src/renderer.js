@@ -3,7 +3,7 @@
  * Handles drawing nodes, segments, and stress visualisation
  */
 
-import { Node, Weight, MATERIALS } from './structure.js';
+import { Node, Weight, MATERIALS, STRESS_COLORS } from './structure.js';
 
 export class Renderer {
     // Constants
@@ -493,6 +493,137 @@ export class Renderer {
     }
 
     /**
+     * Draw joint angle arcs at a node.
+     * @param {Node} node - The node with joints
+     * @param {Object} jointData - { anglePairs: [...] } from JointController
+     * @param {boolean} simulating - Whether physics is running
+     */
+    drawJointArcs(node, jointData, simulating = false) {
+        const ctx = this.ctx;
+
+        // Get node position
+        const pos = simulating && node.body
+            ? node.body.position
+            : { x: node.x, y: node.y };
+
+        const baseRadius = Node.radius + 10;
+        const radiusStep = 14;
+
+        for (let i = 0; i < jointData.anglePairs.length; i++) {
+            const pair = jointData.anglePairs[i];
+            const arcRadius = baseRadius + i * radiusStep;
+
+            // Get angles to segment endpoints
+            const angleA = this.getSegmentAngleForArc(node, pair.segmentA, simulating);
+            const angleB = this.getSegmentAngleForArc(node, pair.segmentB, simulating);
+
+            // Normalise to draw the smaller arc
+            const { startAngle, endAngle, clockwise } = this.normaliseArcAngles(angleA, angleB);
+
+            // Colour by torque only during simulation (neutral colour when static)
+            const color = simulating
+                ? this.getTorqueColor(pair.normalisedTorque)
+                : STRESS_COLORS.low;
+
+            // Draw arc
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, arcRadius, startAngle, endAngle, clockwise);
+            ctx.stroke();
+
+            // Draw angle label at arc midpoint
+            const midAngle = clockwise
+                ? startAngle - (startAngle - endAngle + 2 * Math.PI) % (2 * Math.PI) / 2
+                : (startAngle + endAngle) / 2;
+            const labelRadius = arcRadius + 10;
+            const labelX = pos.x + Math.cos(midAngle) * labelRadius;
+            const labelY = pos.y + Math.sin(midAngle) * labelRadius;
+
+            const degrees = Math.round(pair.angle * 180 / Math.PI);
+            const torquePercent = Math.round(pair.normalisedTorque * 100);
+
+            // Draw label background pill
+            ctx.font = 'bold 10px "DM Sans", sans-serif';
+            // Plan mode: show angle; Sim mode: show stress %
+            const text = simulating ? `${torquePercent}%` : `${degrees}°`;
+            const textWidth = ctx.measureText(text).width;
+            const pillWidth = textWidth + 6;
+            const pillHeight = 14;
+
+            ctx.fillStyle = 'rgba(13, 13, 26, 0.85)';
+            ctx.beginPath();
+            if (ctx.roundRect) {
+                ctx.roundRect(labelX - pillWidth / 2, labelY - pillHeight / 2, pillWidth, pillHeight, 3);
+            } else {
+                ctx.rect(labelX - pillWidth / 2, labelY - pillHeight / 2, pillWidth, pillHeight);
+            }
+            ctx.fill();
+
+            // Label text
+            ctx.fillStyle = color;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, labelX, labelY);
+        }
+    }
+
+    /**
+     * Get the angle from a node towards a segment's other endpoint.
+     * @param {Node} node - The junction node
+     * @param {Segment} segment - The segment
+     * @param {boolean} simulating - Use physics body positions if true
+     * @returns {number} Angle in radians (-PI to PI)
+     */
+    getSegmentAngleForArc(node, segment, simulating) {
+        const getPos = (n) => simulating && n.body
+            ? n.body.position
+            : { x: n.x, y: n.y };
+
+        const other = segment.nodeA === node ? segment.nodeB : segment.nodeA;
+        const nodePos = getPos(node);
+        const otherPos = getPos(other);
+
+        return Math.atan2(otherPos.y - nodePos.y, otherPos.x - nodePos.x);
+    }
+
+    /**
+     * Normalise arc angles to draw the smaller arc between two directions.
+     * @param {number} angleA - First angle in radians
+     * @param {number} angleB - Second angle in radians
+     * @returns {{ startAngle: number, endAngle: number, clockwise: boolean }}
+     */
+    normaliseArcAngles(angleA, angleB) {
+        // Calculate the angular difference
+        let diff = angleB - angleA;
+
+        // Normalise to [-PI, PI]
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+
+        // If diff is positive, angleB is counterclockwise from angleA
+        // If diff is negative, angleB is clockwise from angleA
+        // We want to draw the smaller arc
+        if (diff >= 0) {
+            return { startAngle: angleA, endAngle: angleB, clockwise: false };
+        } else {
+            return { startAngle: angleA, endAngle: angleB, clockwise: true };
+        }
+    }
+
+    /**
+     * Get colour for torque magnitude using stress colour gradient.
+     * @param {number} normalisedTorque - Torque value 0-1
+     * @returns {string} Hex colour
+     */
+    getTorqueColor(normalisedTorque) {
+        if (normalisedTorque < 0.25) return STRESS_COLORS.low;
+        if (normalisedTorque < 0.50) return STRESS_COLORS.medium;
+        if (normalisedTorque < 0.75) return STRESS_COLORS.high;
+        return STRESS_COLORS.critical;
+    }
+
+    /**
      * Draw a selection box (rubber-band rectangle).
      * @param {Object} rect - { x, y, width, height }
      * @param {Node[]} nodesInside - Nodes currently inside the box (for preview highlight)
@@ -601,6 +732,8 @@ export class Renderer {
             mouseX = 0,
             mouseY = 0,
             showStressLabels = false,
+            showJointAngles = false,
+            jointData = null,
             selectionBox = null,
             pastePreview = null
         } = state;
@@ -629,6 +762,13 @@ export class Renderer {
         // Draw nodes
         for (const node of structure.nodes) {
             this.drawNode(node, simulating);
+        }
+
+        // Draw joint overlay (angles in plan mode, stress in sim mode)
+        if (showJointAngles && jointData) {
+            for (const [node, data] of jointData) {
+                this.drawJointArcs(node, data, simulating);
+            }
         }
 
         // Draw connection preview from all selected nodes to cursor

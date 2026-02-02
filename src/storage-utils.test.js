@@ -34,7 +34,8 @@ describe('Storage Utils - User Intent', () => {
             saveViewSettings(storage, {
                 currentMaterial: 'spring',
                 snapToGrid: false,
-                showStressLabels: false
+                showStressLabels: false,
+                showJointAngles: false
             });
 
             const settings = loadViewSettings(storage);
@@ -47,12 +48,14 @@ describe('Storage Utils - User Intent', () => {
             saveViewSettings(storage, {
                 currentMaterial: 'beam',
                 snapToGrid: true,
-                showStressLabels: true
+                showStressLabels: true,
+                showJointAngles: true
             });
 
             const settings = loadViewSettings(storage);
             expect(settings.snapToGrid).toBe(true);
             expect(settings.showStressLabels).toBe(true);
+            expect(settings.showJointAngles).toBe(true);
         });
 
         it('should restore their structure with all nodes and segments', () => {
@@ -116,7 +119,7 @@ describe('Storage Utils - User Intent', () => {
         it('should remove saved view settings', () => {
             const storage = createMockStorage();
 
-            saveViewSettings(storage, { currentMaterial: 'cable', snapToGrid: true, showStressLabels: true });
+            saveViewSettings(storage, { currentMaterial: 'cable', snapToGrid: true, showStressLabels: true, showJointAngles: true });
             clearStorage(storage);
 
             expect(loadViewSettings(storage)).toBeNull();
@@ -189,7 +192,8 @@ describe('saveViewSettings', () => {
         const settings = {
             currentMaterial: 'cable',
             snapToGrid: true,
-            showStressLabels: false
+            showStressLabels: false,
+            showJointAngles: true
         };
 
         const result = saveViewSettings(storage, settings);
@@ -214,7 +218,8 @@ describe('saveViewSettings', () => {
         saveViewSettings(storage, {
             currentMaterial: 'beam',
             snapToGrid: false,
-            showStressLabels: false
+            showStressLabels: false,
+            showJointAngles: false
         });
 
         const saved = JSON.parse(storage.getItem(STORAGE_KEYS.VIEW_SETTINGS));
@@ -234,12 +239,14 @@ describe('loadViewSettings', () => {
         storage.setItem(STORAGE_KEYS.VIEW_SETTINGS, JSON.stringify({
             currentMaterial: 'beam',
             snapToGrid: 1,
-            showStressLabels: 'yes'
+            showStressLabels: 'yes',
+            showJointAngles: 'true'
         }));
 
         const settings = loadViewSettings(storage);
         expect(settings.snapToGrid).toBe(true);
         expect(settings.showStressLabels).toBe(true);
+        expect(settings.showJointAngles).toBe(true);
     });
 
     it('should handle missing fields gracefully', () => {
@@ -253,6 +260,7 @@ describe('loadViewSettings', () => {
         expect(settings.currentMaterial).toBe('beam');
         expect(settings.snapToGrid).toBe(false);
         expect(settings.showStressLabels).toBe(false);
+        expect(settings.showJointAngles).toBe(false);
     });
 });
 
@@ -341,7 +349,7 @@ describe('loadStructure', () => {
 describe('clearStorage', () => {
     it('should remove view settings', () => {
         const storage = createMockStorage();
-        saveViewSettings(storage, { currentMaterial: 'beam', snapToGrid: true, showStressLabels: false });
+        saveViewSettings(storage, { currentMaterial: 'beam', snapToGrid: true, showStressLabels: false, showJointAngles: true });
 
         clearStorage(storage);
 

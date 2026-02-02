@@ -14,6 +14,7 @@ import { ContextMenuController } from './context-menu-controller.js';
 import { InputController } from './input-controller.js';
 import { SelectionBoxController } from './selection-box-controller.js';
 import { ClipboardController } from './clipboard-controller.js';
+import { JointController } from './joint-controller.js';
 import { StateModal } from './state-modal.js';
 import {
     saveViewSettings,
@@ -197,6 +198,9 @@ class PhysicsSandbox {
 
         // Initialise hover controller (needs canvas)
         this.hover = new HoverController(this.canvas);
+
+        // Initialise joint controller (for angle/torque calculations)
+        this.jointController = new JointController();
     }
 
     initStructure() {
@@ -791,6 +795,11 @@ class PhysicsSandbox {
             this.updateStats();
         }
 
+        // Compute joint data if view is enabled
+        const jointData = this.ui.showJointAngles
+            ? this.jointController.computeJointData(this.structure, this.isSimulating)
+            : null;
+
         // Render
         this.renderer.render(this.structure, {
             simulating: this.isSimulating,
@@ -798,6 +807,8 @@ class PhysicsSandbox {
             mouseX: this.mouseX,
             mouseY: this.mouseY,
             showStressLabels: this.ui.showStressLabels,
+            showJointAngles: this.ui.showJointAngles,
+            jointData,
             selectionBox: this.selectionBoxState,
             pastePreview: this.pastePreviewState
         });

@@ -7,6 +7,7 @@ export class NodePopup {
         this.popup = null;
         this.node = null;
         this.onMassChange = null;
+        this.onAngularStiffnessChange = null;
         this.onPinToggle = null;
         this.onDelete = null;
         this.onClose = null;
@@ -50,6 +51,11 @@ export class NodePopup {
     }
 
     buildHTML(node) {
+        // Format angular stiffness label
+        const stiffnessLabel = node.angularStiffness === 0 ? 'Free'
+            : node.angularStiffness === 1 ? 'Locked'
+            : node.angularStiffness.toFixed(2);
+
         return `
             <div class="node-popup-header">
                 <span class="node-popup-title">Node #${node.id}</span>
@@ -62,6 +68,15 @@ export class NodePopup {
                             <div class="scrubber-thumb"></div>
                         </div>
                         <span class="scrubber-value">${node.mass.toFixed(1)} kg</span>
+                    </div>
+                </div>
+                <div class="scrubber-row">
+                    <label class="scrubber-label">Joint Stiffness</label>
+                    <div class="scrubber" data-property="angularStiffness">
+                        <div class="scrubber-track">
+                            <div class="scrubber-thumb"></div>
+                        </div>
+                        <span class="scrubber-value">${stiffnessLabel}</span>
                     </div>
                 </div>
                 <div class="node-popup-action-row" data-action="pin">
@@ -126,6 +141,8 @@ export class NodePopup {
         const property = scrubber.dataset.property;
         if (property === 'mass') {
             this.scrubStartValue = this.node.mass;
+        } else if (property === 'angularStiffness') {
+            this.scrubStartValue = this.node.angularStiffness;
         }
 
         // Add visual feedback
@@ -145,6 +162,8 @@ export class NodePopup {
         const property = scrubber.dataset.property;
         if (property === 'mass') {
             this.scrubStartValue = this.node.mass;
+        } else if (property === 'angularStiffness') {
+            this.scrubStartValue = this.node.angularStiffness;
         }
 
         // Add visual feedback
@@ -178,6 +197,17 @@ export class NodePopup {
             this.node.setMass(roundedMass);
             valueEl.textContent = `${this.node.mass.toFixed(1)} kg`;
             this.onMassChange?.(this.node.mass);
+        } else if (property === 'angularStiffness') {
+            // Sensitivity: 1 pixel = 0.005 stiffness units (0-1 range over ~200px)
+            const sensitivity = 0.005;
+            const newValue = this.scrubStartValue + dx * sensitivity;
+            this.node.setAngularStiffness(newValue);
+            // Format label
+            const label = this.node.angularStiffness === 0 ? 'Free'
+                : this.node.angularStiffness === 1 ? 'Locked'
+                : this.node.angularStiffness.toFixed(2);
+            valueEl.textContent = label;
+            this.onAngularStiffnessChange?.(this.node.angularStiffness);
         }
     }
 
@@ -192,6 +222,8 @@ export class NodePopup {
         const property = this.activeScrubber.dataset.property;
         if (property === 'mass') {
             this.scrubStartValue = this.node.mass;
+        } else if (property === 'angularStiffness') {
+            this.scrubStartValue = this.node.angularStiffness;
         }
 
         this.activeScrubber.classList.remove('scrubbing');
@@ -224,6 +256,15 @@ export class NodePopup {
             this.node.setMass(roundedMass);
             valueEl.textContent = `${this.node.mass.toFixed(1)} kg`;
             this.onMassChange?.(this.node.mass);
+        } else if (property === 'angularStiffness') {
+            const sensitivity = 0.005;
+            const newValue = this.scrubStartValue + dx * sensitivity;
+            this.node.setAngularStiffness(newValue);
+            const label = this.node.angularStiffness === 0 ? 'Free'
+                : this.node.angularStiffness === 1 ? 'Locked'
+                : this.node.angularStiffness.toFixed(2);
+            valueEl.textContent = label;
+            this.onAngularStiffnessChange?.(this.node.angularStiffness);
         }
     }
 
@@ -238,6 +279,8 @@ export class NodePopup {
         const property = this.activeScrubber.dataset.property;
         if (property === 'mass') {
             this.scrubStartValue = this.node.mass;
+        } else if (property === 'angularStiffness') {
+            this.scrubStartValue = this.node.angularStiffness;
         }
 
         this.activeScrubber.classList.remove('scrubbing');
