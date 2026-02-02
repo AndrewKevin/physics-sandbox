@@ -4,6 +4,28 @@
  */
 
 import { StructureManager, Node } from './structure.js';
+
+/**
+ * Show a toast notification.
+ * @param {string} message - Message to display
+ * @param {'error' | 'success'} [type='error'] - Toast type
+ * @param {number} [duration=3000] - Duration in ms before auto-dismiss
+ */
+function showToast(message, type = 'error', duration = 3000) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    // Auto-dismiss
+    setTimeout(() => {
+        toast.classList.add('toast-fade-out');
+        toast.addEventListener('animationend', () => toast.remove());
+    }, duration);
+}
 import { Renderer } from './renderer.js';
 import { UIController } from './ui.js';
 import { clampToCanvas, snapToGrid } from './position-utils.js';
@@ -190,6 +212,9 @@ class PhysicsSandbox {
             },
             onPasteCancel: () => {
                 this.pastePreviewState = null;
+            },
+            onPasteError: (message) => {
+                showToast(message, 'error');
             }
         });
 
@@ -370,10 +395,9 @@ class PhysicsSandbox {
                     // Could show a toast/feedback here
                 }
             },
-            onPaste: () => {
-                if (this.clipboard.hasContent) {
-                    this.clipboard.startPaste({ x: this.mouseX, y: this.mouseY });
-                }
+            onPaste: async () => {
+                // startPaste checks internal clipboard first, then system clipboard
+                await this.clipboard.startPaste({ x: this.mouseX, y: this.mouseY });
             },
             onWindowResize: () => {
                 // Recalculate world dimensions

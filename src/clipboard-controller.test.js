@@ -89,9 +89,9 @@ describe('ClipboardController', () => {
             expect(controller.clipboardNodeCount).toBe(3);
         });
 
-        it('should store node properties (fixed, mass)', () => {
+        it('should store node properties (fixed, mass)', async () => {
             controller.copy();
-            controller.startPaste({ x: 0, y: 0 });
+            await controller.startPaste({ x: 0, y: 0 });
 
             const preview = controller.getPreviewData();
 
@@ -129,11 +129,11 @@ describe('ClipboardController', () => {
             expect(controller.hasContent).toBe(false);
         });
 
-        it('should calculate centroid correctly', () => {
+        it('should calculate centroid correctly', async () => {
             // Nodes at (100,100), (200,100), (150,200)
             // Centroid should be at (150, 133.33)
             controller.copy();
-            controller.startPaste({ x: 150, y: 133.33 });
+            await controller.startPaste({ x: 150, y: 133.33 });
 
             const preview = controller.getPreviewData();
 
@@ -148,25 +148,25 @@ describe('ClipboardController', () => {
             controller.copy();
         });
 
-        it('should start paste preview with initial position', () => {
-            const result = controller.startPaste({ x: 300, y: 300 });
+        it('should start paste preview with initial position', async () => {
+            const result = await controller.startPaste({ x: 300, y: 300 });
 
             expect(result).toBe(true);
             expect(controller.isActive).toBe(true);
             expect(options.onPasteStart).toHaveBeenCalled();
         });
 
-        it('should return false when clipboard is empty', () => {
+        it('should return false when clipboard is empty', async () => {
             controller.reset();
 
-            const result = controller.startPaste({ x: 300, y: 300 });
+            const result = await controller.startPaste({ x: 300, y: 300 });
 
             expect(result).toBe(false);
             expect(controller.isActive).toBe(false);
         });
 
-        it('should update preview position on mouse move', () => {
-            controller.startPaste({ x: 300, y: 300 });
+        it('should update preview position on mouse move', async () => {
+            await controller.startPaste({ x: 300, y: 300 });
 
             const preview = controller.updatePreview({ x: 400, y: 400 });
 
@@ -174,8 +174,8 @@ describe('ClipboardController', () => {
             expect(options.onPasteMove).toHaveBeenCalledWith(preview);
         });
 
-        it('should return preview data with node positions', () => {
-            controller.startPaste({ x: 300, y: 300 });
+        it('should return preview data with node positions', async () => {
+            await controller.startPaste({ x: 300, y: 300 });
 
             const preview = controller.getPreviewData();
 
@@ -183,8 +183,8 @@ describe('ClipboardController', () => {
             expect(preview.segments).toHaveLength(2);
         });
 
-        it('should maintain relative positions in preview', () => {
-            controller.startPaste({ x: 0, y: 0 });
+        it('should maintain relative positions in preview', async () => {
+            await controller.startPaste({ x: 0, y: 0 });
             const preview1 = controller.getPreviewData();
 
             controller.updatePreview({ x: 100, y: 100 });
@@ -210,9 +210,9 @@ describe('ClipboardController', () => {
     });
 
     describe('Commit paste', () => {
-        beforeEach(() => {
+        beforeEach(async () => {
             controller.copy();
-            controller.startPaste({ x: 300, y: 300 });
+            await controller.startPaste({ x: 300, y: 300 });
         });
 
         it('should create nodes at preview positions', () => {
@@ -299,9 +299,9 @@ describe('ClipboardController', () => {
     });
 
     describe('Cancel paste', () => {
-        beforeEach(() => {
+        beforeEach(async () => {
             controller.copy();
-            controller.startPaste({ x: 300, y: 300 });
+            await controller.startPaste({ x: 300, y: 300 });
         });
 
         it('should exit paste mode', () => {
@@ -323,13 +323,13 @@ describe('ClipboardController', () => {
             expect(options.createSegment).not.toHaveBeenCalled();
         });
 
-        it('should preserve clipboard for future pastes', () => {
+        it('should preserve clipboard for future pastes', async () => {
             controller.cancelPaste();
 
             expect(controller.hasContent).toBe(true);
 
             // Can start a new paste
-            const result = controller.startPaste({ x: 400, y: 400 });
+            const result = await controller.startPaste({ x: 400, y: 400 });
             expect(result).toBe(true);
         });
     });
@@ -342,9 +342,9 @@ describe('ClipboardController', () => {
             expect(controller.hasContent).toBe(false);
         });
 
-        it('should cancel paste mode', () => {
+        it('should cancel paste mode', async () => {
             controller.copy();
-            controller.startPaste({ x: 300, y: 300 });
+            await controller.startPaste({ x: 300, y: 300 });
             controller.reset();
 
             expect(controller.isActive).toBe(false);
@@ -381,37 +381,37 @@ describe('ClipboardController', () => {
     });
 
     describe('Edge cases', () => {
-        it('should handle single node copy', () => {
+        it('should handle single node copy', async () => {
             options.getSelectedNodes.mockReturnValue([mockNodes[0]]);
             options.getSegmentsBetweenNodes.mockReturnValue([]);
             controller = new ClipboardController(options);
 
             controller.copy();
-            controller.startPaste({ x: 300, y: 300 });
+            await controller.startPaste({ x: 300, y: 300 });
             const result = controller.commitPaste();
 
             expect(result.nodes).toHaveLength(1);
             expect(result.segments).toHaveLength(0);
         });
 
-        it('should handle nodes without segments', () => {
+        it('should handle nodes without segments', async () => {
             options.getSegmentsBetweenNodes.mockReturnValue([]);
             controller = new ClipboardController(options);
 
             controller.copy();
-            controller.startPaste({ x: 300, y: 300 });
+            await controller.startPaste({ x: 300, y: 300 });
             const result = controller.commitPaste();
 
             expect(result.nodes).toHaveLength(3);
             expect(result.segments).toHaveLength(0);
         });
 
-        it('should handle createNode returning null', () => {
+        it('should handle createNode returning null', async () => {
             options.createNode.mockReturnValue(null);
             controller = new ClipboardController(options);
 
             controller.copy();
-            controller.startPaste({ x: 300, y: 300 });
+            await controller.startPaste({ x: 300, y: 300 });
             const result = controller.commitPaste();
 
             // Should still return result structure, but with empty arrays
