@@ -14,6 +14,7 @@ export class InputController {
      * @param {Function} options.findElementAt - (x, y) => {type, element}|null
      * @param {Function} options.getDrag - () => DragController
      * @param {Function} options.getHover - () => HoverController
+     * @param {Function} [options.getViewport] - () => ViewportController|null
      * @param {Function} [options.getSelectionBox] - () => SelectionBoxController|null
      * @param {Function} [options.getClipboard] - () => ClipboardController|null
      * @param {Function} options.onMousePosChange - (x, y) => void
@@ -36,6 +37,9 @@ export class InputController {
         // Modifier key state
         this.shiftHeld = false;
 
+        // Pending context menu (for macOS where contextmenu fires on mousedown)
+        this.pendingContextMenu = null;
+
         this.bindEvents();
     }
 
@@ -50,6 +54,9 @@ export class InputController {
         this.canvas.addEventListener('mouseleave', (e) => this.onMouseLeave(e));
         this.canvas.addEventListener('click', (e) => this.onClick(e));
         this.canvas.addEventListener('contextmenu', (e) => this.onRightClick(e));
+
+        // Wheel event for zoom
+        this.canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
 
         // Touch events for mobile
         this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
@@ -100,9 +107,19 @@ export class InputController {
     // ─────────────────────────────────────────────────────────────────────────
 
     onMouseDown(e) {
+        const pos = this.getMousePos(e);
+
+        // Right-click: start potential pan
+        if (e.button === 2) {
+            const viewport = this.options.getViewport?.();
+            if (viewport) {
+                viewport.beginPan(pos);
+            }
+            return;
+        }
+
         if (this.options.isSimulating() || e.button !== 0) return;
 
-        const pos = this.getMousePos(e);
         const clipboard = this.options.getClipboard?.();
 
         // Don't start drag/selection during paste preview
@@ -110,20 +127,49 @@ export class InputController {
             return;
         }
 
-        const node = this.options.findNodeAt(pos.x, pos.y);
+        const viewport = this.options.getViewport?.();
+
+        // Convert to world coordinates for node finding and drag
+        const worldPos = viewport
+            ? viewport.screenToWorld(pos.x, pos.y)
+            : pos;
+
+        const node = this.options.findNodeAt(worldPos.x, worldPos.y);
         const drag = this.options.getDrag();
         const selectionBox = this.options.getSelectionBox?.();
 
         if (node && node.isEditable) {
-            // Clicking on an editable node - start potential drag
-            drag.beginPotentialDrag(node, pos);
+            // Clicking on an editable node - start potential drag (in world coords)
+            drag.beginPotentialDrag(node, worldPos);
         } else if (selectionBox && !node) {
-            // Clicking on empty space - start potential selection box
+            // Clicking on empty space - start potential selection box (in screen coords)
             selectionBox.beginSelection(pos, this.shiftHeld);
         }
     }
 
     onMouseUp(e) {
+        // Right-click release: end pan (if panning) or show context menu
+        if (e.button === 2) {
+            const viewport = this.options.getViewport?.();
+            const pendingPos = this.pendingContextMenu;
+            this.pendingContextMenu = null;
+
+            if (viewport?.isTracking) {
+                const { wasPanning } = viewport.endPan();
+                if (wasPanning) {
+                    // Was panning, don't show context menu
+                    return;
+                }
+            }
+
+            // If we deferred a context menu (macOS fires on mousedown), show it now
+            if (pendingPos) {
+                this.showContextMenu(e, pendingPos);
+            }
+            // On Windows/Linux, contextmenu fires after mouseup, so it handles itself
+            return;
+        }
+
         if (e.button !== 0) return;
 
         const drag = this.options.getDrag();
@@ -144,19 +190,36 @@ export class InputController {
 
         const drag = this.options.getDrag();
         const hover = this.options.getHover();
+        const viewport = this.options.getViewport?.();
         const selectionBox = this.options.getSelectionBox?.();
         const clipboard = this.options.getClipboard?.();
 
-        // Handle paste preview (highest priority - follows cursor)
+        // Handle viewport panning (highest priority)
+        if (viewport?.isTracking) {
+            const result = viewport.updatePan(pos);
+            if (result.isPanning) {
+                this.canvas.style.cursor = result.cursor;
+                return;
+            }
+        }
+
+        // Handle paste preview (follows cursor in world space)
         if (!this.options.isSimulating() && clipboard?.isActive) {
-            clipboard.updatePreview(pos);
+            // Convert to world coordinates for paste positioning
+            const worldPos = viewport
+                ? viewport.screenToWorld(pos.x, pos.y)
+                : pos;
+            clipboard.updatePreview(worldPos);
             this.canvas.style.cursor = 'copy';
             return;
         }
 
-        // Handle node dragging (takes priority)
+        // Handle node dragging (takes priority) - use world coords
         if (!this.options.isSimulating() && drag.isTracking) {
-            const result = drag.updateDrag(pos);
+            const worldPos = viewport
+                ? viewport.screenToWorld(pos.x, pos.y)
+                : pos;
+            const result = drag.updateDrag(worldPos);
             if (result.isDragging) {
                 this.canvas.style.cursor = 'grabbing';
                 return;
@@ -172,10 +235,13 @@ export class InputController {
             }
         }
 
-        // Update hover states and cursor
+        // Update hover states and cursor (use world coords for element detection)
         if (!this.options.isSimulating()) {
             hover.clear();
-            hover.update(this.options.findElementAt(pos.x, pos.y));
+            const worldPos = viewport
+                ? viewport.screenToWorld(pos.x, pos.y)
+                : pos;
+            hover.update(this.options.findElementAt(worldPos.x, worldPos.y));
         } else {
             this.canvas.style.cursor = 'default';
         }
@@ -220,6 +286,30 @@ export class InputController {
         // Always prevent default browser context menu
         e.preventDefault();
 
+        const viewport = this.options.getViewport?.();
+
+        // If tracking potential pan, defer context menu decision to mouseup
+        // (On macOS, contextmenu fires on mousedown before we know if it's a pan)
+        if (viewport?.isTracking) {
+            this.pendingContextMenu = this.getMousePos(e);
+            return;
+        }
+
+        // Check if we should suppress context menu (after panning)
+        if (viewport?.shouldSuppressContextMenu) {
+            viewport.clearContextMenuSuppression();
+            return;
+        }
+
+        this.showContextMenu(e);
+    }
+
+    /**
+     * Actually show the context menu (extracted for reuse).
+     * @param {MouseEvent} e - The original event (for positioning)
+     * @param {{ x: number, y: number }} [overridePos] - Optional override position
+     */
+    showContextMenu(e, overridePos = null) {
         if (this.options.isSimulating()) return;
 
         // Cancel paste preview if active
@@ -235,7 +325,7 @@ export class InputController {
             selectionBox.cancelSelection();
         }
 
-        const pos = this.getMousePos(e);
+        const pos = overridePos || this.getMousePos(e);
         this.options.onRightClick(e, pos.x, pos.y);
     }
 
@@ -245,20 +335,46 @@ export class InputController {
     }
 
     /**
+     * Handle mouse wheel for zooming.
+     */
+    onWheel(e) {
+        e.preventDefault();
+
+        const viewport = this.options.getViewport?.();
+        if (!viewport) return;
+
+        const pos = this.getMousePos(e);
+        // Scroll down = zoom out, scroll up = zoom in
+        const delta = e.deltaY > 0 ? -1 : 1;
+
+        viewport.zoomAt(delta, pos.x, pos.y);
+    }
+
+    /**
      * Handle mouse movement outside the canvas.
-     * Continues selection box and drag operations.
+     * Continues selection box, drag, and pan operations.
      */
     onWindowMouseMove(e) {
         // Skip if event originated from canvas (handled by onMouseMove)
         if (e.target === this.canvas) return;
 
         const drag = this.options.getDrag();
+        const viewport = this.options.getViewport?.();
         const selectionBox = this.options.getSelectionBox?.();
 
         // Only process if we're actively tracking something
-        if (!drag.isTracking && !selectionBox?.isTracking) return;
+        if (!drag.isTracking && !selectionBox?.isTracking && !viewport?.isTracking) return;
 
         const pos = this.getMousePos(e);
+
+        // Update viewport pan
+        if (viewport?.isTracking) {
+            const result = viewport.updatePan(pos);
+            if (result.isPanning) {
+                this.canvas.style.cursor = result.cursor;
+                return;
+            }
+        }
 
         // Update selection box position
         if (selectionBox?.isTracking) {
@@ -268,9 +384,12 @@ export class InputController {
             }
         }
 
-        // Update drag position
+        // Update drag position (use world coords)
         if (drag.isTracking) {
-            const result = drag.updateDrag(pos);
+            const worldPos = viewport
+                ? viewport.screenToWorld(pos.x, pos.y)
+                : pos;
+            const result = drag.updateDrag(worldPos);
             if (result.isDragging) {
                 this.canvas.style.cursor = 'grabbing';
             }
@@ -279,11 +398,22 @@ export class InputController {
 
     /**
      * Handle mouse up outside the canvas.
-     * Completes selection box and drag operations.
+     * Completes selection box, drag, and pan operations.
      */
     onWindowMouseUp(e) {
         // Skip if event originated from canvas (handled by onMouseUp)
         if (e.target === this.canvas) return;
+
+        // Handle right-click release for pan
+        if (e.button === 2) {
+            this.pendingContextMenu = null;  // Clear any deferred context menu
+            const viewport = this.options.getViewport?.();
+            if (viewport?.isTracking) {
+                viewport.endPan();
+            }
+            return;
+        }
+
         if (e.button !== 0) return;
 
         const drag = this.options.getDrag();
@@ -314,9 +444,13 @@ export class InputController {
 
         // Check if touching a node for potential drag
         if (!this.options.isSimulating()) {
-            const node = this.options.findNodeAt(pos.x, pos.y);
+            const viewport = this.options.getViewport?.();
+            const worldPos = viewport
+                ? viewport.screenToWorld(pos.x, pos.y)
+                : pos;
+            const node = this.options.findNodeAt(worldPos.x, worldPos.y);
             if (node) {
-                this.options.getDrag().beginPotentialDrag(node, pos);
+                this.options.getDrag().beginPotentialDrag(node, worldPos);
             }
         }
     }
@@ -330,10 +464,14 @@ export class InputController {
 
         const drag = this.options.getDrag();
         const hover = this.options.getHover();
+        const viewport = this.options.getViewport?.();
 
-        // Handle dragging
+        // Handle dragging (use world coords)
         if (!this.options.isSimulating() && drag.isTracking) {
-            const result = drag.updateDrag(pos);
+            const worldPos = viewport
+                ? viewport.screenToWorld(pos.x, pos.y)
+                : pos;
+            const result = drag.updateDrag(worldPos);
             if (result.isDragging) {
                 return;
             }
@@ -342,7 +480,10 @@ export class InputController {
         // Update hover states for visual feedback
         if (!this.options.isSimulating()) {
             hover.clear();
-            hover.update(this.options.findElementAt(pos.x, pos.y));
+            const worldPos = viewport
+                ? viewport.screenToWorld(pos.x, pos.y)
+                : pos;
+            hover.update(this.options.findElementAt(worldPos.x, worldPos.y));
         }
     }
 
@@ -381,6 +522,13 @@ export class InputController {
         const isTyping = tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA';
 
         if (e.key === 'Escape') {
+            // Cancel viewport pan if active
+            const viewport = this.options.getViewport?.();
+            if (viewport?.isActive) {
+                viewport.cancelPan();
+                return;
+            }
+
             // Cancel paste preview if active
             const clipboard = this.options.getClipboard?.();
             if (clipboard?.isActive) {

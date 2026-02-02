@@ -55,52 +55,131 @@ export class Renderer {
         this.ctx.fillRect(0, 0, this.width, this.height);
     }
 
-    drawGrid() {
+    /**
+     * Draw grid aligned to ground level.
+     * Grid lines are positioned so one line sits exactly at groundY,
+     * with major lines every GRID_MAJOR_INTERVAL cells from ground.
+     * Grid only appears within the placeable area (0 to worldWidth, 0 to groundY).
+     * @param {number} groundY - Ground Y position (grid aligns to this)
+     * @param {number} worldWidth - Width of the world in pixels
+     * @param {Object} viewport - Viewport state { zoom, panX, panY }
+     */
+    drawGrid(groundY = this.height - Renderer.DEFAULT_GROUND_OFFSET, worldWidth = this.width, viewport = { zoom: 1, panX: 0, panY: 0 }) {
         const ctx = this.ctx;
+        const gridSize = Renderer.GRID_SIZE;
+        const majorInterval = gridSize * Renderer.GRID_MAJOR_INTERVAL;
 
-        // Draw minor grid lines
-        ctx.strokeStyle = this.colors.grid;
+        // Calculate visible world bounds (accounting for pan and zoom)
+        const worldLeft = viewport.panX;
+        const worldTop = viewport.panY;
+        const worldRight = viewport.panX + this.width / viewport.zoom;
+        const worldBottom = viewport.panY + this.height / viewport.zoom;
+
+        // Placeable area bounds (where nodes can exist)
+        const placeableLeft = 0;
+        const placeableTop = 0;
+        const placeableRight = worldWidth;
+        const placeableBottom = groundY;
+
+        // Clamp visible bounds to placeable area for grid rendering
+        const gridLeft = Math.max(worldLeft, placeableLeft);
+        const gridTop = Math.max(worldTop, placeableTop);
+        const gridRight = Math.min(worldRight, placeableRight);
+        const gridBottom = Math.min(worldBottom, placeableBottom);
+
+        // Don't draw if no overlap with placeable area
+        if (gridLeft >= gridRight || gridTop >= gridBottom) return;
+
+        // Calculate first and last grid lines within clamped bounds
+        const firstX = Math.floor(gridLeft / gridSize) * gridSize;
+        const lastX = Math.ceil(gridRight / gridSize) * gridSize;
+        const firstY = Math.floor(gridTop / gridSize) * gridSize;
+        const lastY = Math.ceil(gridBottom / gridSize) * gridSize;
+
+        // Adjust Y to align with groundY
+        const yOffset = groundY % gridSize;
+        const adjustedFirstY = firstY - (firstY % gridSize) + yOffset;
+
         ctx.lineWidth = 1;
 
-        for (let x = 0; x < this.width; x += Renderer.GRID_SIZE) {
+        // Vertical lines (X axis) - major lines at x = 0, 100, 200...
+        for (let x = firstX; x <= lastX; x += gridSize) {
+            if (x < placeableLeft || x > placeableRight) continue;
+            const isMajor = (x % majorInterval) === 0;
+            ctx.strokeStyle = isMajor ? this.colors.gridMajor : this.colors.grid;
             ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, this.height);
+            ctx.moveTo(x, gridTop);
+            ctx.lineTo(x, gridBottom);
             ctx.stroke();
         }
 
-        for (let y = 0; y < this.height; y += Renderer.GRID_SIZE) {
+        // Horizontal lines (Y axis) - major lines at groundY, groundY-100, groundY-200...
+        for (let y = adjustedFirstY; y <= lastY; y += gridSize) {
+            if (y < placeableTop || y > placeableBottom) continue;
+            // Distance from ground determines if major (0, 100, 200... from ground)
+            const distFromGround = Math.abs(groundY - y);
+            const isMajor = (distFromGround % majorInterval) === 0;
+            ctx.strokeStyle = isMajor ? this.colors.gridMajor : this.colors.grid;
             ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(this.width, y);
+            ctx.moveTo(gridLeft, y);
+            ctx.lineTo(gridRight, y);
             ctx.stroke();
         }
 
-        // Draw major grid lines (every N cells)
-        ctx.strokeStyle = this.colors.gridMajor;
-        ctx.lineWidth = 1;
-
-        for (let x = 0; x < this.width; x += Renderer.GRID_SIZE * Renderer.GRID_MAJOR_INTERVAL) {
+        // Draw boundary line at the right edge of placeable area (if visible)
+        if (placeableRight > worldLeft && placeableRight < worldRight) {
+            ctx.strokeStyle = 'rgba(255, 58, 242, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 8]);
             ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, this.height);
+            ctx.moveTo(placeableRight, gridTop);
+            ctx.lineTo(placeableRight, gridBottom);
             ctx.stroke();
+            ctx.setLineDash([]);
         }
 
-        for (let y = 0; y < this.height; y += Renderer.GRID_SIZE * Renderer.GRID_MAJOR_INTERVAL) {
+        // Draw boundary line at the top edge (y=0) if visible
+        if (placeableTop > worldTop && placeableTop < worldBottom) {
+            ctx.strokeStyle = 'rgba(255, 58, 242, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 8]);
             ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(this.width, y);
+            ctx.moveTo(gridLeft, placeableTop);
+            ctx.lineTo(gridRight, placeableTop);
             ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Draw boundary line at the left edge (x=0) if visible
+        if (placeableLeft > worldLeft && placeableLeft < worldRight) {
+            ctx.strokeStyle = 'rgba(255, 58, 242, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 8]);
+            ctx.beginPath();
+            ctx.moveTo(placeableLeft, gridTop);
+            ctx.lineTo(placeableLeft, gridBottom);
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
     }
 
-    drawGround(groundY) {
+    /**
+     * Draw the ground area below groundY.
+     * @param {number} groundY - Y position of ground in world coords
+     * @param {number} worldWidth - Width of the world in pixels
+     * @param {Object} viewport - Viewport state { zoom, panX, panY }
+     */
+    drawGround(groundY, worldWidth = this.width, viewport = { zoom: 1, panX: 0, panY: 0 }) {
         const ctx = this.ctx;
 
-        // Ground fill
+        // Calculate visible world bounds
+        const worldLeft = viewport.panX;
+        const worldRight = viewport.panX + this.width / viewport.zoom;
+        const worldBottom = viewport.panY + this.height / viewport.zoom;
+
+        // Ground fill - extends to cover full visible area
         ctx.fillStyle = this.colors.ground;
-        ctx.fillRect(0, groundY, this.width, this.height - groundY);
+        ctx.fillRect(worldLeft, groundY, worldRight - worldLeft, worldBottom - groundY);
 
         // Ground line with glow
         ctx.strokeStyle = '#FF3AF2';
@@ -108,18 +187,18 @@ export class Renderer {
         ctx.shadowColor = '#FF3AF2';
         ctx.shadowBlur = 20;
         ctx.beginPath();
-        ctx.moveTo(0, groundY);
-        ctx.lineTo(this.width, groundY);
+        ctx.moveTo(worldLeft, groundY);
+        ctx.lineTo(worldRight, groundY);
         ctx.stroke();
         ctx.shadowBlur = 0;
 
         // Ground pattern
         ctx.strokeStyle = 'rgba(255, 58, 242, 0.2)';
         ctx.lineWidth = 1;
-        for (let y = groundY + Renderer.GROUND_PATTERN_SPACING; y < this.height; y += Renderer.GROUND_PATTERN_SPACING) {
+        for (let y = groundY + Renderer.GROUND_PATTERN_SPACING; y < worldBottom; y += Renderer.GROUND_PATTERN_SPACING) {
             ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(this.width, y);
+            ctx.moveTo(worldLeft, y);
+            ctx.lineTo(worldRight, y);
             ctx.stroke();
         }
     }
@@ -733,11 +812,12 @@ export class Renderer {
     }
 
     /**
-     * Draw a selection box (rubber-band rectangle).
-     * @param {Object} rect - { x, y, width, height }
+     * Draw a selection box (rubber-band rectangle) in screen space.
+     * @param {Object} rect - { x, y, width, height } in screen coordinates
      * @param {Node[]} nodesInside - Nodes currently inside the box (for preview highlight)
+     * @param {Object} viewport - Viewport state { zoom, panX, panY }
      */
-    drawSelectionBox(rect, nodesInside = []) {
+    drawSelectionBox(rect, nodesInside = [], viewport = { zoom: 1, panX: 0, panY: 0 }) {
         if (!rect) return;
 
         const ctx = this.ctx;
@@ -759,13 +839,19 @@ export class Renderer {
         ctx.setLineDash([]);
 
         // Highlight nodes that would be selected (preview)
+        // Transform node world positions to screen positions
         for (const node of nodesInside) {
             if (!node.selected) {
+                // Convert world to screen coordinates
+                const screenX = (node.x - viewport.panX) * viewport.zoom;
+                const screenY = (node.y - viewport.panY) * viewport.zoom;
+                const screenRadius = (12 + 4) * viewport.zoom;
+
                 // Draw preview highlight ring for unselected nodes
                 ctx.strokeStyle = 'rgba(0, 245, 212, 0.5)';
                 ctx.lineWidth = 3;
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, 12 + 4, 0, Math.PI * 2);
+                ctx.arc(screenX, screenY, screenRadius, 0, Math.PI * 2);
                 ctx.stroke();
             }
         }
@@ -838,8 +924,10 @@ export class Renderer {
         const {
             simulating = false,
             groundY = this.height - Renderer.DEFAULT_GROUND_OFFSET,
+            worldWidth = this.width,
             mouseX = 0,
             mouseY = 0,
+            viewport = { zoom: 1, panX: 0, panY: 0 },
             showStressLabels = false,
             showJointAngles = false,
             jointData = null,
@@ -850,8 +938,14 @@ export class Renderer {
         } = state;
 
         this.clear();
-        this.drawGrid();
-        this.drawGround(groundY);
+
+        // Apply viewport transform for world-space rendering
+        this.ctx.save();
+        this.ctx.scale(viewport.zoom, viewport.zoom);
+        this.ctx.translate(-viewport.panX, -viewport.panY);
+
+        this.drawGrid(groundY, worldWidth, viewport);
+        this.drawGround(groundY, worldWidth, viewport);
 
         // Draw segments first (behind nodes)
         for (const segment of structure.segments) {
@@ -888,17 +982,26 @@ export class Renderer {
         if (!simulating && selectedNodes.length > 0 && !pastePreview && !isDragging) {
             // Show ghost node only when hovering empty space (not an element)
             const showGhostNode = !isHoveringElement;
-            this.drawConnectionPreview(selectedNodes, mouseX, mouseY, showGhostNode);
-        }
 
-        // Draw selection box overlay (on top of everything)
-        if (!simulating && selectionBox?.rect) {
-            this.drawSelectionBox(selectionBox.rect, selectionBox.nodesInside || []);
+            // Clamp preview position to placeable bounds (use world dimensions)
+            const radius = Node.radius;
+            const clampedX = Math.max(radius, Math.min(worldWidth - radius, mouseX));
+            const clampedY = Math.max(radius, Math.min(groundY - radius, mouseY));
+
+            this.drawConnectionPreview(selectedNodes, clampedX, clampedY, showGhostNode);
         }
 
         // Draw paste preview (on top of everything)
         if (!simulating && pastePreview) {
             this.drawPastePreview(pastePreview);
+        }
+
+        // Restore context before drawing screen-space elements
+        this.ctx.restore();
+
+        // Draw selection box in screen space (feels more natural)
+        if (!simulating && selectionBox?.rect) {
+            this.drawSelectionBox(selectionBox.rect, selectionBox.nodesInside || [], viewport);
         }
     }
 }

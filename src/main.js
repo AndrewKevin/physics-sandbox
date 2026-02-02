@@ -15,6 +15,7 @@ import { InputController } from './input-controller.js';
 import { SelectionBoxController } from './selection-box-controller.js';
 import { ClipboardController } from './clipboard-controller.js';
 import { JointController } from './joint-controller.js';
+import { ViewportController } from './viewport-controller.js';
 import { StateModal } from './state-modal.js';
 import {
     saveViewSettings,
@@ -31,6 +32,10 @@ class PhysicsSandbox {
     static GROUND_OFFSET = 60;
     static GROUND_WIDTH_MULTIPLIER = 2;
 
+    // World dimensions (larger than visible canvas)
+    static WORLD_WIDTH_MULTIPLIER = 1.5;   // 50% wider
+    static WORLD_HEIGHT_MULTIPLIER = 2.0;  // 100% taller
+
     constructor() {
         // Core state
         this.material = 'beam';
@@ -40,13 +45,16 @@ class PhysicsSandbox {
         // Snapshot for simulation restore
         this.preSimulationSnapshot = null;
 
-        // Mouse state
+        // Mouse state (world coordinates)
         this.mouseX = 0;
         this.mouseY = 0;
+        // Mouse state (screen coordinates)
+        this.mouseScreenX = 0;
+        this.mouseScreenY = 0;
 
         // Drag controller (supports both single and multi-node dragging)
         this.drag = new DragController({
-            getBounds: () => ({ width: this.renderer.width, groundY: this.groundY }),
+            getBounds: () => ({ width: this.worldWidth, groundY: this.groundY }),
             getNodeRadius: () => Node.radius,
             getSnapEnabled: () => this.ui?.snapToGrid ?? false,
             getGridSize: () => Renderer.GRID_SIZE,
@@ -90,7 +98,17 @@ class PhysicsSandbox {
 
         // Selection box controller for multi-select
         this.selectionBox = new SelectionBoxController({
-            findNodesInRect: (rect) => this.structure.findNodesInRect(rect),
+            findNodesInRect: (screenRect) => {
+                // Convert screen rect to world rect for node detection
+                const viewport = this.viewport ?? { zoom: 1, panX: 0, panY: 0 };
+                const worldRect = {
+                    x: (screenRect.x / viewport.zoom) + viewport.panX,
+                    y: (screenRect.y / viewport.zoom) + viewport.panY,
+                    width: screenRect.width / viewport.zoom,
+                    height: screenRect.height / viewport.zoom
+                };
+                return this.structure.findNodesInRect(worldRect);
+            },
             onSelectionStart: () => {
                 // Clear hover during selection
                 this.hover.clear();
@@ -200,13 +218,24 @@ class PhysicsSandbox {
     initCanvas() {
         this.canvas = document.getElementById('physics-canvas');
         this.renderer = new Renderer(this.canvas);
-        this.groundY = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
+
+        // Calculate world dimensions (larger than visible canvas)
+        this.worldWidth = this.renderer.width * PhysicsSandbox.WORLD_WIDTH_MULTIPLIER;
+        const visibleHeight = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
+        this.groundY = visibleHeight * PhysicsSandbox.WORLD_HEIGHT_MULTIPLIER;
 
         // Initialise hover controller (needs canvas)
         this.hover = new HoverController(this.canvas);
 
         // Initialise joint controller (for angle/torque calculations)
         this.jointController = new JointController();
+
+        // Initialise viewport controller (zoom/pan)
+        this.viewport = new ViewportController({
+            onViewportChange: () => {
+                // Viewport changes trigger re-render automatically via animate loop
+            }
+        });
     }
 
     initStructure() {
@@ -220,7 +249,7 @@ class PhysicsSandbox {
      */
     createGroundAnchors() {
         const spacing = 100; // Pixels between anchors
-        const anchorCount = Math.floor(this.renderer.width / spacing) + 1;
+        const anchorCount = Math.floor(this.worldWidth / spacing) + 1;
 
         for (let i = 0; i < anchorCount; i++) {
             const x = i * spacing;
@@ -231,7 +260,7 @@ class PhysicsSandbox {
     initPhysics() {
         this.physics = new PhysicsController({
             getCanvasDimensions: () => ({
-                width: this.renderer.width,
+                width: this.worldWidth,
                 groundY: this.groundY,
                 groundOffset: PhysicsSandbox.GROUND_OFFSET
             }),
@@ -302,27 +331,37 @@ class PhysicsSandbox {
     initInput() {
         this.input = new InputController(this.canvas, {
             isSimulating: () => this.isSimulating,
-            findNodeAt: (x, y) => this.structure.findNodeAt(x, y),
+            findNodeAt: (x, y) => this.structure.findNodeAt(x, y, this.getScaledNodeRadius()),
             findElementAt: (x, y) => this.findElementAt(x, y),
             getDrag: () => this.drag,
             getHover: () => this.hover,
+            getViewport: () => this.viewport,
             getSelectionBox: () => this.selectionBox,
             getClipboard: () => this.clipboard,
             onMousePosChange: (x, y) => {
-                this.mouseX = x;
-                this.mouseY = y;
+                // Store screen coordinates
+                this.mouseScreenX = x;
+                this.mouseScreenY = y;
+                // Convert to world coordinates for element interaction
+                const world = this.viewport.screenToWorld(x, y);
+                this.mouseX = world.x;
+                this.mouseY = world.y;
             },
-            onClick: (x, y) => {
-                this.handleClick(x, y);
+            onClick: (screenX, screenY) => {
+                // Convert screen to world coordinates for element interaction
+                const world = this.viewport.screenToWorld(screenX, screenY);
+                this.handleClick(world.x, world.y);
                 this.updateStats();
             },
-            onShiftClick: (x, y) => {
-                this.handleShiftClick(x, y);
+            onShiftClick: (screenX, screenY) => {
+                const world = this.viewport.screenToWorld(screenX, screenY);
+                this.handleShiftClick(world.x, world.y);
                 this.updateStats();
             },
-            onRightClick: (e, x, y) => {
-                const elements = this.findAllElementsAt(x, y);
-                this.menus.handleRightClick(e, x, y, elements);
+            onRightClick: (e, screenX, screenY) => {
+                const world = this.viewport.screenToWorld(screenX, screenY);
+                const elements = this.findAllElementsAt(world.x, world.y);
+                this.menus.handleRightClick(e, world.x, world.y, elements);
             },
             onEscape: () => this.handleEscape(),
             onDelete: () => this.deleteSelectedElement(),
@@ -337,10 +376,14 @@ class PhysicsSandbox {
                 }
             },
             onWindowResize: () => {
-                this.groundY = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
+                // Recalculate world dimensions
+                this.worldWidth = this.renderer.width * PhysicsSandbox.WORLD_WIDTH_MULTIPLIER;
+                const visibleHeight = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
+                this.groundY = visibleHeight * PhysicsSandbox.WORLD_HEIGHT_MULTIPLIER;
+
                 if (this.isSimulating) {
                     this.physics.updateGroundPosition({
-                        width: this.renderer.width,
+                        width: this.worldWidth,
                         groundY: this.groundY,
                         groundOffset: PhysicsSandbox.GROUND_OFFSET
                     });
@@ -383,8 +426,17 @@ class PhysicsSandbox {
         const structureData = loadStructure(localStorage);
         if (structureData) {
             this.structure.deserialize(structureData);
-            // Only create ground anchors if none exist (backward compatibility)
-            if (this.structure.getGroundAnchors().length === 0) {
+
+            // Check if ground anchors need to be recreated (world dimensions may have changed)
+            const existingAnchors = this.structure.getGroundAnchors();
+            const anchorsAtWrongY = existingAnchors.length > 0 &&
+                existingAnchors.some(a => Math.abs(a.y - this.groundY) > 1);
+
+            if (existingAnchors.length === 0 || anchorsAtWrongY) {
+                // Remove old anchors and create new ones at correct positions
+                for (const anchor of existingAnchors) {
+                    this.structure.removeNode(anchor);
+                }
                 this.createGroundAnchors();
             }
             this.updateStats();
@@ -588,7 +640,7 @@ class PhysicsSandbox {
 
         if (selectedNodes.length > 0) {
             // Create new node and connect to all selected nodes
-            const bounds = { width: this.renderer.width, groundY: this.groundY };
+            const bounds = { width: this.worldWidth, groundY: this.groundY };
 
             // Clamp first, then snap, then re-clamp (ensures final position is on-grid AND in-bounds)
             let pos = clampToCanvas(x, y, bounds, Node.radius);
@@ -641,20 +693,33 @@ class PhysicsSandbox {
     }
 
     /**
-     * Find the highest-priority element at a position.
+     * Get the node hit radius scaled for current zoom level.
+     * When zoomed out, we need a larger world-space radius to compensate.
+     * @returns {number} Scaled node radius
+     */
+    getScaledNodeRadius() {
+        return Node.radius / this.viewport.zoom;
+    }
+
+    /**
+     * Find the highest-priority element at a position (world coordinates).
      * Priority order: weight > node > segment (smallest to largest hit areas).
-     * @param {number} x - X position
-     * @param {number} y - Y position
+     * Hit radii are scaled for current zoom level.
+     * @param {number} x - World X position
+     * @param {number} y - World Y position
      * @returns {{type: string, element: Object}|null} The element, or null if none found
      */
     findElementAt(x, y) {
+        const scaledRadius = this.getScaledNodeRadius();
+        const scaledThreshold = 10 / this.viewport.zoom;  // Segment hit threshold
+
         const weight = this.structure.findWeightAt(x, y);
         if (weight) return { type: 'weight', element: weight };
 
-        const node = this.structure.findNodeAt(x, y);
+        const node = this.structure.findNodeAt(x, y, scaledRadius);
         if (node) return { type: 'node', element: node };
 
-        const segment = this.structure.findSegmentAt(x, y);
+        const segment = this.structure.findSegmentAt(x, y, scaledThreshold);
         if (segment) return { type: 'segment', element: segment };
 
         return null;
@@ -789,8 +854,10 @@ class PhysicsSandbox {
         this.renderer.render(this.structure, {
             simulating: this.isSimulating,
             groundY: this.groundY,
+            worldWidth: this.worldWidth,
             mouseX: this.mouseX,
             mouseY: this.mouseY,
+            viewport: this.viewport.getState(),
             showStressLabels: this.ui.showStressLabels,
             showJointAngles: this.ui.showJointAngles,
             jointData,
