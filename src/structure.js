@@ -861,17 +861,20 @@ export class StructureManager {
 
         // Migrate legacy Y-down coordinates to Y-up if needed
         const isLegacyFormat = !data.version || data.version < 2;
+        let nodeDataList = data.nodes;
         if (isLegacyFormat && groundScreenY !== undefined) {
             // Legacy format: Y increases downward, groundY is a large positive value
             // New format: Y increases upward, ground is at Y=0
             // Convert: newY = groundScreenY - oldY (assuming old groundY ≈ groundScreenY)
-            for (const nodeData of data.nodes) {
-                nodeData.y = groundScreenY - nodeData.y;
-            }
+            // Clone to avoid mutating input data
+            nodeDataList = data.nodes.map(nodeData => ({
+                ...nodeData,
+                y: groundScreenY - nodeData.y
+            }));
         }
 
         // Restore nodes (ground anchors vs regular nodes)
-        for (const nodeData of data.nodes) {
+        for (const nodeData of nodeDataList) {
             if (nodeData.isGroundAnchor) {
                 // Ground anchors only need position
                 this.addGroundAnchor(nodeData.x, nodeData.y);

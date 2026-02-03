@@ -1077,7 +1077,6 @@ export class Renderer {
 
             // Clamp preview position to placeable bounds (Y-up: 0 to worldHeight)
             const radius = Node.radius;
-            const worldHeight = groundScreenY;  // groundScreenY equals worldHeight
             const clampedX = Math.max(radius, Math.min(worldWidth - radius, mouseX));
             const clampedY = Math.max(radius, Math.min(worldHeight - radius, mouseY));
 
