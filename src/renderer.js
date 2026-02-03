@@ -50,55 +50,166 @@ export class Renderer {
         this.canvas.style.height = `${this.height}px`;
     }
 
+    /**
+     * Convert Matter.js Y (Y-down) to world Y (Y-up) for rendering during simulation.
+     * @param {number} matterY - Y position from Matter.js body
+     * @returns {number} Y position in world coords
+     */
+    matterToWorldY(matterY) {
+        return this.groundScreenY - matterY;
+    }
+
+    /**
+     * Get position for rendering, handling both simulation and design modes.
+     * During simulation, converts Matter.js Y-down coords to world Y-up coords.
+     * @param {Object} element - Node or object with x, y and optional body
+     * @param {boolean} simulating - Whether physics is running
+     * @returns {{ x: number, y: number }} Position in world coords (Y-up)
+     */
+    getWorldPos(element, simulating) {
+        if (element.body && simulating) {
+            return {
+                x: element.body.position.x,
+                y: this.matterToWorldY(element.body.position.y)
+            };
+        }
+        return { x: element.x, y: element.y };
+    }
+
+    /**
+     * Get weight position for rendering, handling both simulation and design modes.
+     * During simulation, converts Matter.js Y-down coords to world Y-up coords.
+     * Handles both node-attached weights (with physics bodies) and segment-attached weights.
+     * @param {Object} weight - Weight object
+     * @param {boolean} simulating - Whether physics is running
+     * @returns {{ x: number, y: number }} Position in world coords (Y-up)
+     */
+    getWeightWorldPos(weight, simulating) {
+        // Node-attached weights have physics bodies during simulation
+        if (weight.body && simulating) {
+            return {
+                x: weight.body.position.x,
+                y: this.matterToWorldY(weight.body.position.y)
+            };
+        }
+
+        // Segment-attached weights interpolate between node positions
+        if (weight.attachedToSegment && simulating) {
+            const seg = weight.attachedToSegment;
+            const posA = this.getWorldPos(seg.nodeA, simulating);
+            const posB = this.getWorldPos(seg.nodeB, simulating);
+            return {
+                x: posA.x + (posB.x - posA.x) * weight.position,
+                y: posA.y + (posB.y - posA.y) * weight.position
+            };
+        }
+
+        // Design mode or node-attached without body: use stored position
+        return weight.getPosition();
+    }
+
+    /**
+     * Draw text at a position, counter-flipping Y so text appears right-side-up.
+     * Use this when drawing text in world-space (after Y-flip transform is applied).
+     * @param {string} text - Text to draw
+     * @param {number} x - X position in world coords
+     * @param {number} y - Y position in world coords
+     * @param {Object} options - { font, fillStyle, textAlign, textBaseline }
+     */
+    drawWorldText(text, x, y, options = {}) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(1, -1);  // Counter-flip Y for text
+        ctx.font = options.font ?? '12px sans-serif';
+        ctx.fillStyle = options.fillStyle ?? '#FFFFFF';
+        ctx.textAlign = options.textAlign ?? 'center';
+        ctx.textBaseline = options.textBaseline ?? 'middle';
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
+    }
+
+    /**
+     * Draw a rounded rect background (pill) for labels, counter-flipping Y.
+     * @param {number} x - Center X in world coords
+     * @param {number} y - Center Y in world coords
+     * @param {number} width - Pill width
+     * @param {number} height - Pill height
+     * @param {Object} options - { fillStyle, strokeStyle, lineWidth, radius }
+     */
+    drawWorldPill(x, y, width, height, options = {}) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(1, -1);  // Counter-flip Y
+
+        const pillX = -width / 2;
+        const pillY = -height / 2;
+
+        ctx.fillStyle = options.fillStyle ?? 'rgba(13, 13, 26, 0.85)';
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(pillX, pillY, width, height, options.radius ?? 4);
+        } else {
+            ctx.rect(pillX, pillY, width, height);
+        }
+        ctx.fill();
+
+        if (options.strokeStyle) {
+            ctx.strokeStyle = options.strokeStyle;
+            ctx.lineWidth = options.lineWidth ?? 1.5;
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+
     clear() {
         this.ctx.fillStyle = this.colors.bg;
         this.ctx.fillRect(0, 0, this.width, this.height);
     }
 
     /**
-     * Draw grid aligned to ground level.
-     * Grid lines are positioned so one line sits exactly at groundY,
-     * with major lines every GRID_MAJOR_INTERVAL cells from ground.
-     * Grid only appears within the placeable area (0 to worldWidth, 0 to groundY).
-     * @param {number} groundY - Ground Y position (grid aligns to this)
-     * @param {number} worldWidth - Width of the world in pixels
+     * Draw grid aligned to ground level (Y=0 in world coords).
+     * Grid lines at Y=0, 20, 40... with major lines at Y=0, 100, 200...
+     * Grid only appears within the placeable area (0 to worldWidth, 0 to worldHeight).
+     * Called after Y-flip transform, so draws in world coords (Y-up).
+     * @param {number} worldWidth - Width of the world in world units
+     * @param {number} worldHeight - Height of the buildable area in world units
      * @param {Object} viewport - Viewport state { zoom, panX, panY }
      */
-    drawGrid(groundY = this.height - Renderer.DEFAULT_GROUND_OFFSET, worldWidth = this.width, viewport = { zoom: 1, panX: 0, panY: 0 }) {
+    drawGrid(worldWidth = this.width, worldHeight = this.height, viewport = { zoom: 1, panX: 0, panY: 0 }) {
         const ctx = this.ctx;
         const gridSize = Renderer.GRID_SIZE;
         const majorInterval = gridSize * Renderer.GRID_MAJOR_INTERVAL;
 
-        // Calculate visible world bounds (accounting for pan and zoom)
+        // Calculate visible world bounds (Y-up coords)
+        // panY is the world Y at the bottom of the visible area
         const worldLeft = viewport.panX;
-        const worldTop = viewport.panY;
         const worldRight = viewport.panX + this.width / viewport.zoom;
-        const worldBottom = viewport.panY + this.height / viewport.zoom;
+        const worldBottom = viewport.panY;  // Lowest visible Y
+        const worldTop = viewport.panY + this.height / viewport.zoom;  // Highest visible Y
 
-        // Placeable area bounds (where nodes can exist)
+        // Placeable area bounds (where nodes can exist) in Y-up coords
         const placeableLeft = 0;
-        const placeableTop = 0;
+        const placeableBottom = 0;  // Ground level
         const placeableRight = worldWidth;
-        const placeableBottom = groundY;
+        const placeableTop = worldHeight;  // Top of buildable area
 
         // Clamp visible bounds to placeable area for grid rendering
         const gridLeft = Math.max(worldLeft, placeableLeft);
-        const gridTop = Math.max(worldTop, placeableTop);
+        const gridBottom = Math.max(worldBottom, placeableBottom);
         const gridRight = Math.min(worldRight, placeableRight);
-        const gridBottom = Math.min(worldBottom, placeableBottom);
+        const gridTop = Math.min(worldTop, placeableTop);
 
         // Don't draw if no overlap with placeable area
-        if (gridLeft >= gridRight || gridTop >= gridBottom) return;
+        if (gridLeft >= gridRight || gridBottom >= gridTop) return;
 
         // Calculate first and last grid lines within clamped bounds
         const firstX = Math.floor(gridLeft / gridSize) * gridSize;
         const lastX = Math.ceil(gridRight / gridSize) * gridSize;
-        const firstY = Math.floor(gridTop / gridSize) * gridSize;
-        const lastY = Math.ceil(gridBottom / gridSize) * gridSize;
-
-        // Adjust Y to align with groundY
-        const yOffset = groundY % gridSize;
-        const adjustedFirstY = firstY - (firstY % gridSize) + yOffset;
+        const firstY = Math.floor(gridBottom / gridSize) * gridSize;
+        const lastY = Math.ceil(gridTop / gridSize) * gridSize;
 
         ctx.lineWidth = 1;
 
@@ -108,17 +219,16 @@ export class Renderer {
             const isMajor = (x % majorInterval) === 0;
             ctx.strokeStyle = isMajor ? this.colors.gridMajor : this.colors.grid;
             ctx.beginPath();
-            ctx.moveTo(x, gridTop);
-            ctx.lineTo(x, gridBottom);
+            ctx.moveTo(x, gridBottom);
+            ctx.lineTo(x, gridTop);
             ctx.stroke();
         }
 
-        // Horizontal lines (Y axis) - major lines at groundY, groundY-100, groundY-200...
-        for (let y = adjustedFirstY; y <= lastY; y += gridSize) {
-            if (y < placeableTop || y > placeableBottom) continue;
-            // Distance from ground determines if major (0, 100, 200... from ground)
-            const distFromGround = Math.abs(groundY - y);
-            const isMajor = (distFromGround % majorInterval) === 0;
+        // Horizontal lines (Y axis) - major lines at Y = 0, 100, 200...
+        for (let y = firstY; y <= lastY; y += gridSize) {
+            if (y < placeableBottom || y > placeableTop) continue;
+            // Major lines at Y = 0, 100, 200... (multiples of majorInterval)
+            const isMajor = (y % majorInterval) === 0;
             ctx.strokeStyle = isMajor ? this.colors.gridMajor : this.colors.grid;
             ctx.beginPath();
             ctx.moveTo(gridLeft, y);
@@ -132,14 +242,14 @@ export class Renderer {
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 8]);
             ctx.beginPath();
-            ctx.moveTo(placeableRight, gridTop);
-            ctx.lineTo(placeableRight, gridBottom);
+            ctx.moveTo(placeableRight, gridBottom);
+            ctx.lineTo(placeableRight, gridTop);
             ctx.stroke();
             ctx.setLineDash([]);
         }
 
-        // Draw boundary line at the top edge (y=0) if visible
-        if (placeableTop > worldTop && placeableTop < worldBottom) {
+        // Draw boundary line at the top edge (Y = worldHeight) if visible
+        if (placeableTop < worldTop && placeableTop > worldBottom) {
             ctx.strokeStyle = 'rgba(255, 58, 242, 0.3)';
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 8]);
@@ -150,52 +260,55 @@ export class Renderer {
             ctx.setLineDash([]);
         }
 
-        // Draw boundary line at the left edge (x=0) if visible
+        // Draw boundary line at the left edge (X = 0) if visible
         if (placeableLeft > worldLeft && placeableLeft < worldRight) {
             ctx.strokeStyle = 'rgba(255, 58, 242, 0.3)';
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 8]);
             ctx.beginPath();
-            ctx.moveTo(placeableLeft, gridTop);
-            ctx.lineTo(placeableLeft, gridBottom);
+            ctx.moveTo(placeableLeft, gridBottom);
+            ctx.lineTo(placeableLeft, gridTop);
             ctx.stroke();
             ctx.setLineDash([]);
         }
     }
 
     /**
-     * Draw the ground area below groundY.
-     * @param {number} groundY - Y position of ground in world coords
-     * @param {number} worldWidth - Width of the world in pixels
+     * Draw the ground area below Y=0.
+     * In Y-up coords, ground is at Y=0 and extends into negative Y.
+     * Called after Y-flip transform, so draws in world coords.
+     * @param {number} worldWidth - Width of the world in world units
      * @param {Object} viewport - Viewport state { zoom, panX, panY }
      */
-    drawGround(groundY, worldWidth = this.width, viewport = { zoom: 1, panX: 0, panY: 0 }) {
+    drawGround(_worldWidth = this.width, viewport = { zoom: 1, panX: 0, panY: 0 }) {
         const ctx = this.ctx;
 
-        // Calculate visible world bounds
+        // Calculate visible world bounds (Y-up)
         const worldLeft = viewport.panX;
         const worldRight = viewport.panX + this.width / viewport.zoom;
-        const worldBottom = viewport.panY + this.height / viewport.zoom;
+        const worldBottom = viewport.panY;  // Lowest visible Y
 
-        // Ground fill - extends to cover full visible area
+        // Ground fill - extends below Y=0 (into negative Y space)
+        // We need to cover from Y=0 down to the lowest visible point
+        const groundDepth = Math.max(100, -worldBottom + 100);  // Ensure enough coverage
         ctx.fillStyle = this.colors.ground;
-        ctx.fillRect(worldLeft, groundY, worldRight - worldLeft, worldBottom - groundY);
+        ctx.fillRect(worldLeft, -groundDepth, worldRight - worldLeft, groundDepth);
 
-        // Ground line with glow
+        // Ground line at Y=0 with glow
         ctx.strokeStyle = '#FF3AF2';
         ctx.lineWidth = 4;
         ctx.shadowColor = '#FF3AF2';
         ctx.shadowBlur = 20;
         ctx.beginPath();
-        ctx.moveTo(worldLeft, groundY);
-        ctx.lineTo(worldRight, groundY);
+        ctx.moveTo(worldLeft, 0);
+        ctx.lineTo(worldRight, 0);
         ctx.stroke();
         ctx.shadowBlur = 0;
 
-        // Ground pattern
+        // Ground pattern (below Y=0)
         ctx.strokeStyle = 'rgba(255, 58, 242, 0.2)';
         ctx.lineWidth = 1;
-        for (let y = groundY + Renderer.GROUND_PATTERN_SPACING; y < worldBottom; y += Renderer.GROUND_PATTERN_SPACING) {
+        for (let y = -Renderer.GROUND_PATTERN_SPACING; y > worldBottom - 100; y -= Renderer.GROUND_PATTERN_SPACING) {
             ctx.beginPath();
             ctx.moveTo(worldLeft, y);
             ctx.lineTo(worldRight, y);
@@ -208,13 +321,9 @@ export class Renderer {
         const nodeA = segment.nodeA;
         const nodeB = segment.nodeB;
 
-        // Get actual positions (from physics body if simulating)
-        const posA = nodeA.body && simulating
-            ? nodeA.body.position
-            : { x: nodeA.x, y: nodeA.y };
-        const posB = nodeB.body && simulating
-            ? nodeB.body.position
-            : { x: nodeB.x, y: nodeB.y };
+        // Get positions in world coords (Y-up)
+        const posA = this.getWorldPos(nodeA, simulating);
+        const posB = this.getWorldPos(nodeB, simulating);
 
         // Get color based on stress when simulating
         const materialConfig = MATERIALS[segment.material];
@@ -376,10 +485,8 @@ export class Renderer {
 
         const radius = Node.radius;
 
-        // Get actual position (from physics body if simulating)
-        const pos = node.body && simulating
-            ? node.body.position
-            : { x: node.x, y: node.y };
+        // Get position in world coords (Y-up)
+        const pos = this.getWorldPos(node, simulating);
 
         // Determine colors
         let fillColor = this.colors.node;
@@ -468,8 +575,9 @@ export class Renderer {
         const ctx = this.ctx;
         const radius = weight.getRadius();  // Dynamic radius based on mass
 
-        // Get position (interpolated if attached to segment)
-        const pos = weight.getPosition();
+        // Get position in world coords (Y-up)
+        // During simulation, converts from Matter.js Y-down coords
+        const pos = this.getWeightWorldPos(weight, simulating);
 
         // Determine colors
         let fillColor = this.colors.weight;
@@ -521,35 +629,37 @@ export class Renderer {
 
         ctx.shadowBlur = 0;
 
-        // Draw mass label (scale font with radius)
+        // Draw mass label (scale font with radius) - counter-flip for Y-up
         const fontSize = Math.round(8 + radius * 0.3);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = `bold ${fontSize}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(weight.mass.toFixed(0), pos.x, pos.y);
+        this.drawWorldText(weight.mass.toFixed(0), pos.x, pos.y, {
+            font: `bold ${fontSize}px sans-serif`,
+            fillStyle: '#FFFFFF'
+        });
 
         // Draw attachment line to segment midpoint if attached to segment
         if (weight.attachedToSegment && simulating) {
             const seg = weight.attachedToSegment;
-            const nodeA = seg.nodeA;
-            const nodeB = seg.nodeB;
 
-            const posA = nodeA.body ? nodeA.body.position : { x: nodeA.x, y: nodeA.y };
-            const posB = nodeB.body ? nodeB.body.position : { x: nodeB.x, y: nodeB.y };
+            // Get node positions in world coords (Y-up)
+            const posA = this.getWorldPos(seg.nodeA, simulating);
+            const posB = this.getWorldPos(seg.nodeB, simulating);
 
-            // Attachment point on segment
+            // Attachment point on segment (interpolated)
             const attachX = posA.x + (posB.x - posA.x) * weight.position;
             const attachY = posA.y + (posB.y - posA.y) * weight.position;
 
             // Draw thin line from attachment point to weight body
             if (weight.body) {
+                const weightPos = {
+                    x: weight.body.position.x,
+                    y: this.matterToWorldY(weight.body.position.y)
+                };
                 ctx.strokeStyle = 'rgba(255, 107, 53, 0.5)';
                 ctx.lineWidth = 2;
                 ctx.setLineDash([4, 4]);
                 ctx.beginPath();
                 ctx.moveTo(attachX, attachY);
-                ctx.lineTo(weight.body.position.x, weight.body.position.y);
+                ctx.lineTo(weightPos.x, weightPos.y);
                 ctx.stroke();
                 ctx.setLineDash([]);
             }
@@ -609,61 +719,45 @@ export class Renderer {
 
     drawStressLabel(segment, simulating = false) {
         const ctx = this.ctx;
-        const nodeA = segment.nodeA;
-        const nodeB = segment.nodeB;
 
-        // Get actual positions (from physics body if simulating)
-        const posA = nodeA.body && simulating
-            ? nodeA.body.position
-            : { x: nodeA.x, y: nodeA.y };
-        const posB = nodeB.body && simulating
-            ? nodeB.body.position
-            : { x: nodeB.x, y: nodeB.y };
+        // Get positions in world coords (Y-up)
+        const posA = this.getWorldPos(segment.nodeA, simulating);
+        const posB = this.getWorldPos(segment.nodeB, simulating);
 
         // Calculate midpoint
         const midX = (posA.x + posB.x) / 2;
         const midY = (posA.y + posB.y) / 2;
 
-        // Calculate segment angle for label offset
+        // Calculate segment angle for label offset (perpendicular to segment)
         const angle = Math.atan2(posB.y - posA.y, posB.x - posA.x);
-        // Offset perpendicular to segment
         const offsetDist = 18;
         const offsetX = Math.sin(angle) * offsetDist;
         const offsetY = -Math.cos(angle) * offsetDist;
 
+        // Label position
+        const labelX = midX + offsetX;
+        const labelY = midY + offsetY;
+
         // Get stress percentage and colour
         const stressColor = segment.getStressColor();
-
-        // Draw background pill
         const text = `${Math.round(segment.stress * 100)}`;
+
+        // Measure text width for pill sizing
         ctx.font = 'bold 11px "DM Sans", sans-serif';
         const textWidth = ctx.measureText(text).width;
         const pillWidth = textWidth + 10;
         const pillHeight = 18;
-        const pillX = midX + offsetX - pillWidth / 2;
-        const pillY = midY + offsetY - pillHeight / 2;
 
-        // Semi-transparent background
-        ctx.fillStyle = 'rgba(13, 13, 26, 0.85)';
-        ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 4);
-        } else {
-            // Fallback for older browsers
-            ctx.rect(pillX, pillY, pillWidth, pillHeight);
-        }
-        ctx.fill();
+        // Draw background pill (counter-flip for Y-up)
+        this.drawWorldPill(labelX, labelY, pillWidth, pillHeight, {
+            strokeStyle: stressColor
+        });
 
-        // Border matching stress colour
-        ctx.strokeStyle = stressColor;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Text
-        ctx.fillStyle = stressColor;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(text, midX + offsetX, midY + offsetY);
+        // Draw text (counter-flip for Y-up)
+        this.drawWorldText(text, labelX, labelY, {
+            font: 'bold 11px "DM Sans", sans-serif',
+            fillStyle: stressColor
+        });
     }
 
     /**
@@ -675,10 +769,8 @@ export class Renderer {
     drawJointArcs(node, jointData, simulating = false) {
         const ctx = this.ctx;
 
-        // Get node position
-        const pos = simulating && node.body
-            ? node.body.position
-            : { x: node.x, y: node.y };
+        // Get node position in world coords (Y-up)
+        const pos = this.getWorldPos(node, simulating);
 
         const baseRadius = Node.radius + 10;
         const radiusStep = 14;
@@ -732,26 +824,22 @@ export class Renderer {
                 ? `${Math.round(stress * 100)}`
                 : `${Math.round(pair.angle * 180 / Math.PI)}°`;
 
-            // Draw label background pill
+            // Measure text width for pill sizing
             ctx.font = 'bold 10px "DM Sans", sans-serif';
             const textWidth = ctx.measureText(text).width;
             const pillWidth = textWidth + 6;
             const pillHeight = 14;
 
-            ctx.fillStyle = 'rgba(13, 13, 26, 0.85)';
-            ctx.beginPath();
-            if (ctx.roundRect) {
-                ctx.roundRect(labelX - pillWidth / 2, labelY - pillHeight / 2, pillWidth, pillHeight, 3);
-            } else {
-                ctx.rect(labelX - pillWidth / 2, labelY - pillHeight / 2, pillWidth, pillHeight);
-            }
-            ctx.fill();
+            // Draw label background pill (counter-flip for Y-up)
+            this.drawWorldPill(labelX, labelY, pillWidth, pillHeight, {
+                radius: 3
+            });
 
-            // Label text
-            ctx.fillStyle = color;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(text, labelX, labelY);
+            // Draw label text (counter-flip for Y-up)
+            this.drawWorldText(text, labelX, labelY, {
+                font: 'bold 10px "DM Sans", sans-serif',
+                fillStyle: color
+            });
         }
     }
 
@@ -763,13 +851,9 @@ export class Renderer {
      * @returns {number} Angle in radians (-PI to PI)
      */
     getSegmentAngleForArc(node, segment, simulating) {
-        const getPos = (n) => simulating && n.body
-            ? n.body.position
-            : { x: n.x, y: n.y };
-
         const other = segment.nodeA === node ? segment.nodeB : segment.nodeA;
-        const nodePos = getPos(node);
-        const otherPos = getPos(other);
+        const nodePos = this.getWorldPos(node, simulating);
+        const otherPos = this.getWorldPos(other, simulating);
 
         return Math.atan2(otherPos.y - nodePos.y, otherPos.x - nodePos.x);
     }
@@ -839,12 +923,13 @@ export class Renderer {
         ctx.setLineDash([]);
 
         // Highlight nodes that would be selected (preview)
-        // Transform node world positions to screen positions
+        // Transform node world positions to screen positions (Y-up to Y-down)
         for (const node of nodesInside) {
             if (!node.selected) {
-                // Convert world to screen coordinates
+                // Convert world to screen coordinates (Y-up world to Y-down screen)
                 const screenX = (node.x - viewport.panX) * viewport.zoom;
-                const screenY = (node.y - viewport.panY) * viewport.zoom;
+                // Y-flip: screenY = groundScreenY - (worldY - panY) * zoom
+                const screenY = this.groundScreenY - (node.y - viewport.panY) * viewport.zoom;
                 const screenRadius = (12 + 4) * viewport.zoom;
 
                 // Draw preview highlight ring for unselected nodes
@@ -907,13 +992,12 @@ export class Renderer {
 
             ctx.shadowBlur = 0;
 
-            // Fixed indicator
+            // Fixed indicator (counter-flip for Y-up)
             if (node.fixed) {
-                ctx.fillStyle = '#FFFFFF';
-                ctx.font = 'bold 14px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('⚓', node.x, node.y);
+                this.drawWorldText('⚓', node.x, node.y, {
+                    font: 'bold 14px sans-serif',
+                    fillStyle: '#FFFFFF'
+                });
             }
         }
 
@@ -923,13 +1007,15 @@ export class Renderer {
     render(structure, state = {}) {
         const {
             simulating = false,
-            groundY = this.height - Renderer.DEFAULT_GROUND_OFFSET,
+            groundScreenY = this.height - Renderer.DEFAULT_GROUND_OFFSET,
             worldWidth = this.width,
+            worldHeight = this.height - Renderer.DEFAULT_GROUND_OFFSET,
             mouseX = 0,
             mouseY = 0,
             viewport = { zoom: 1, panX: 0, panY: 0 },
             showStressLabels = false,
             showJointAngles = false,
+            showCoordinates = false,
             jointData = null,
             selectionBox = null,
             pastePreview = null,
@@ -937,15 +1023,21 @@ export class Renderer {
             isDragging = false
         } = state;
 
+        // Store groundScreenY for coordinate conversions
+        this.groundScreenY = groundScreenY;
+
         this.clear();
 
-        // Apply viewport transform for world-space rendering
+        // Apply viewport transform for world-space rendering with Y-flip
+        // World coords: Y=0 at ground, positive Y upward
+        // Screen coords: Y=0 at top, positive Y downward
         this.ctx.save();
-        this.ctx.scale(viewport.zoom, viewport.zoom);
+        this.ctx.translate(0, groundScreenY);           // Move origin to ground line
+        this.ctx.scale(viewport.zoom, -viewport.zoom);  // Flip Y axis (negative Y scale)
         this.ctx.translate(-viewport.panX, -viewport.panY);
 
-        this.drawGrid(groundY, worldWidth, viewport);
-        this.drawGround(groundY, worldWidth, viewport);
+        this.drawGrid(worldWidth, worldHeight, viewport);
+        this.drawGround(worldWidth, viewport);
 
         // Draw segments first (behind nodes)
         for (const segment of structure.segments) {
@@ -983,10 +1075,11 @@ export class Renderer {
             // Show ghost node only when hovering empty space (not an element)
             const showGhostNode = !isHoveringElement;
 
-            // Clamp preview position to placeable bounds (use world dimensions)
+            // Clamp preview position to placeable bounds (Y-up: 0 to worldHeight)
             const radius = Node.radius;
+            const worldHeight = groundScreenY;  // groundScreenY equals worldHeight
             const clampedX = Math.max(radius, Math.min(worldWidth - radius, mouseX));
-            const clampedY = Math.max(radius, Math.min(groundY - radius, mouseY));
+            const clampedY = Math.max(radius, Math.min(worldHeight - radius, mouseY));
 
             this.drawConnectionPreview(selectedNodes, clampedX, clampedY, showGhostNode);
         }
@@ -1003,5 +1096,49 @@ export class Renderer {
         if (!simulating && selectionBox?.rect) {
             this.drawSelectionBox(selectionBox.rect, selectionBox.nodesInside || [], viewport);
         }
+
+        // Draw coordinate debug display (screen space, top-left corner)
+        if (showCoordinates) {
+            this.drawCoordinateDisplay(mouseX, mouseY);
+        }
+    }
+
+    /**
+     * Draw coordinate debug display showing mouse position in world coords (Y-up).
+     * @param {number} worldX - Mouse X in world coordinates
+     * @param {number} worldY - Mouse Y in world coordinates (Y-up, 0 at ground)
+     */
+    drawCoordinateDisplay(worldX, worldY) {
+        const ctx = this.ctx;
+        const text = `X: ${worldX.toFixed(0)}  Y: ${worldY.toFixed(0)}`;
+
+        ctx.font = 'bold 12px "DM Sans", monospace';
+        const textWidth = ctx.measureText(text).width;
+        const padding = 8;
+        const pillWidth = textWidth + padding * 2;
+        const pillHeight = 24;
+        const x = 10;
+        const y = 10;
+
+        // Background pill
+        ctx.fillStyle = 'rgba(13, 13, 26, 0.9)';
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(x, y, pillWidth, pillHeight, 4);
+        } else {
+            ctx.rect(x, y, pillWidth, pillHeight);
+        }
+        ctx.fill();
+
+        // Border
+        ctx.strokeStyle = '#00F5D4';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Text
+        ctx.fillStyle = '#00F5D4';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, x + padding, y + pillHeight / 2);
     }
 }

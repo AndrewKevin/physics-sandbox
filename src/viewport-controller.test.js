@@ -4,6 +4,8 @@ import { ViewportController } from './viewport-controller.js';
 describe('ViewportController', () => {
     let viewport;
     let onViewportChange;
+    // Standard test groundScreenY (simulating a canvas with ground at Y=600 in screen coords)
+    const GROUND_SCREEN_Y = 600;
 
     beforeEach(() => {
         onViewportChange = vi.fn();
@@ -27,27 +29,40 @@ describe('ViewportController', () => {
         });
     });
 
-    describe('screenToWorld / worldToScreen', () => {
-        it('should be identity transforms at zoom=1, pan=0', () => {
-            const world = viewport.screenToWorld(100, 200);
+    describe('screenToWorld / worldToScreen (Y-up coords)', () => {
+        it('should convert screen to world with Y-flip at zoom=1, pan=0', () => {
+            // Screen Y=200 with groundScreenY=600 → world Y = 600-200 = 400
+            const world = viewport.screenToWorld(100, 200, GROUND_SCREEN_Y);
             expect(world.x).toBe(100);
-            expect(world.y).toBe(200);
+            expect(world.y).toBe(400);  // 400 units above ground
+        });
 
-            const screen = viewport.worldToScreen(100, 200);
+        it('should convert world to screen with Y-flip at zoom=1, pan=0', () => {
+            // World Y=400 with groundScreenY=600 → screen Y = 600-400 = 200
+            const screen = viewport.worldToScreen(100, 400, GROUND_SCREEN_Y);
             expect(screen.x).toBe(100);
             expect(screen.y).toBe(200);
+        });
+
+        it('should place ground (world Y=0) at screen Y=groundScreenY', () => {
+            const world = viewport.screenToWorld(100, GROUND_SCREEN_Y, GROUND_SCREEN_Y);
+            expect(world.y).toBe(0);  // Ground level
+
+            const screen = viewport.worldToScreen(100, 0, GROUND_SCREEN_Y);
+            expect(screen.y).toBe(GROUND_SCREEN_Y);  // At ground line
         });
 
         it('should scale correctly at zoom=2', () => {
             viewport.zoom = 2;
 
-            // Screen 100 at zoom 2 = world 50
-            const world = viewport.screenToWorld(100, 200);
+            // Screen 100 at zoom 2 = world 50 (for X)
+            // Screen 200 from ground at 600, at zoom 2: world Y = (600-200)/2 = 200
+            const world = viewport.screenToWorld(100, 200, GROUND_SCREEN_Y);
             expect(world.x).toBe(50);
-            expect(world.y).toBe(100);
+            expect(world.y).toBe(200);
 
-            // World 50 at zoom 2 = screen 100
-            const screen = viewport.worldToScreen(50, 100);
+            // Round-trip back
+            const screen = viewport.worldToScreen(50, 200, GROUND_SCREEN_Y);
             expect(screen.x).toBe(100);
             expect(screen.y).toBe(200);
         });
@@ -56,13 +71,14 @@ describe('ViewportController', () => {
             viewport.panX = 50;
             viewport.panY = 100;
 
-            // Screen 100 with pan 50 = world 150
-            const world = viewport.screenToWorld(100, 200);
+            // X: screen 100 / 1 + panX 50 = world 150
+            // Y: (600-200) / 1 + panY 100 = world 500
+            const world = viewport.screenToWorld(100, 200, GROUND_SCREEN_Y);
             expect(world.x).toBe(150);
-            expect(world.y).toBe(300);
+            expect(world.y).toBe(500);
 
-            // World 150 with pan 50 = screen 100
-            const screen = viewport.worldToScreen(150, 300);
+            // Round-trip back
+            const screen = viewport.worldToScreen(150, 500, GROUND_SCREEN_Y);
             expect(screen.x).toBe(100);
             expect(screen.y).toBe(200);
         });
@@ -72,15 +88,16 @@ describe('ViewportController', () => {
             viewport.panX = 50;
             viewport.panY = 100;
 
-            // Screen 100 at zoom 2 with pan 50 = world 100
-            const world = viewport.screenToWorld(100, 200);
-            expect(world.x).toBe(100);  // (100/2) + 50
-            expect(world.y).toBe(200);  // (200/2) + 100
+            // X: (100/2) + 50 = 100
+            // Y: (600-200)/2 + 100 = 300
+            const world = viewport.screenToWorld(100, 200, GROUND_SCREEN_Y);
+            expect(world.x).toBe(100);
+            expect(world.y).toBe(300);
 
-            // World 100 with pan 50 at zoom 2 = screen 100
-            const screen = viewport.worldToScreen(100, 200);
-            expect(screen.x).toBe(100);  // (100-50) * 2
-            expect(screen.y).toBe(200);  // (200-100) * 2
+            // Round-trip back
+            const screen = viewport.worldToScreen(100, 300, GROUND_SCREEN_Y);
+            expect(screen.x).toBe(100);
+            expect(screen.y).toBe(200);
         });
 
         it('should round-trip correctly', () => {
@@ -89,8 +106,8 @@ describe('ViewportController', () => {
             viewport.panY = 120;
 
             const originalScreen = { x: 300, y: 450 };
-            const world = viewport.screenToWorld(originalScreen.x, originalScreen.y);
-            const backToScreen = viewport.worldToScreen(world.x, world.y);
+            const world = viewport.screenToWorld(originalScreen.x, originalScreen.y, GROUND_SCREEN_Y);
+            const backToScreen = viewport.worldToScreen(world.x, world.y, GROUND_SCREEN_Y);
 
             expect(backToScreen.x).toBeCloseTo(originalScreen.x);
             expect(backToScreen.y).toBeCloseTo(originalScreen.y);
@@ -111,25 +128,25 @@ describe('ViewportController', () => {
 
     describe('zoomAt', () => {
         it('should increase zoom on positive delta', () => {
-            viewport.zoomAt(1, 400, 300);
+            viewport.zoomAt(1, 400, 300, GROUND_SCREEN_Y);
             expect(viewport.zoom).toBe(1.1);
             expect(onViewportChange).toHaveBeenCalled();
         });
 
         it('should decrease zoom on negative delta', () => {
-            viewport.zoomAt(-1, 400, 300);
+            viewport.zoomAt(-1, 400, 300, GROUND_SCREEN_Y);
             expect(viewport.zoom).toBe(0.9);
         });
 
         it('should clamp to MIN_ZOOM', () => {
             viewport.zoom = ViewportController.MIN_ZOOM;
-            viewport.zoomAt(-1, 400, 300);
+            viewport.zoomAt(-1, 400, 300, GROUND_SCREEN_Y);
             expect(viewport.zoom).toBe(ViewportController.MIN_ZOOM);
         });
 
         it('should clamp to MAX_ZOOM', () => {
             viewport.zoom = ViewportController.MAX_ZOOM;
-            viewport.zoomAt(1, 400, 300);
+            viewport.zoomAt(1, 400, 300, GROUND_SCREEN_Y);
             expect(viewport.zoom).toBe(ViewportController.MAX_ZOOM);
         });
 
@@ -137,13 +154,13 @@ describe('ViewportController', () => {
             const screenPos = { x: 400, y: 300 };
 
             // Get world position before zoom
-            const worldBefore = viewport.screenToWorld(screenPos.x, screenPos.y);
+            const worldBefore = viewport.screenToWorld(screenPos.x, screenPos.y, GROUND_SCREEN_Y);
 
             // Zoom in
-            viewport.zoomAt(1, screenPos.x, screenPos.y);
+            viewport.zoomAt(1, screenPos.x, screenPos.y, GROUND_SCREEN_Y);
 
             // Get world position after zoom (at same screen pos)
-            const worldAfter = viewport.screenToWorld(screenPos.x, screenPos.y);
+            const worldAfter = viewport.screenToWorld(screenPos.x, screenPos.y, GROUND_SCREEN_Y);
 
             // World position should be the same
             expect(worldAfter.x).toBeCloseTo(worldBefore.x);
@@ -152,12 +169,12 @@ describe('ViewportController', () => {
 
         it('should not call callback if zoom unchanged', () => {
             viewport.zoom = ViewportController.MAX_ZOOM;
-            viewport.zoomAt(1, 400, 300);
+            viewport.zoomAt(1, 400, 300, GROUND_SCREEN_Y);
             expect(onViewportChange).not.toHaveBeenCalled();
         });
 
         it('should report isDefault as false after zoom', () => {
-            viewport.zoomAt(1, 400, 300);
+            viewport.zoomAt(1, 400, 300, GROUND_SCREEN_Y);
             expect(viewport.isDefault).toBe(false);
         });
     });
@@ -178,11 +195,11 @@ describe('ViewportController', () => {
 
         it('should zoom toward point when provided', () => {
             const screenPos = { x: 400, y: 300 };
-            const worldBefore = viewport.screenToWorld(screenPos.x, screenPos.y);
+            const worldBefore = viewport.screenToWorld(screenPos.x, screenPos.y, GROUND_SCREEN_Y);
 
-            viewport.setZoom(2, screenPos.x, screenPos.y);
+            viewport.setZoom(2, screenPos.x, screenPos.y, GROUND_SCREEN_Y);
 
-            const worldAfter = viewport.screenToWorld(screenPos.x, screenPos.y);
+            const worldAfter = viewport.screenToWorld(screenPos.x, screenPos.y, GROUND_SCREEN_Y);
             expect(worldAfter.x).toBeCloseTo(worldBefore.x);
             expect(worldAfter.y).toBeCloseTo(worldBefore.y);
         });

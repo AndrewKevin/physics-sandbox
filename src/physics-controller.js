@@ -1,6 +1,11 @@
 /**
  * PhysicsController
  * Manages Matter.js engine lifecycle, body/constraint creation, and physics updates
+ *
+ * Coordinate conversion:
+ * - World coordinates use Y-up convention (Y=0 at ground, positive Y is up)
+ * - Matter.js uses Y-down convention (Y=0 at top, positive Y is down)
+ * - This controller handles conversion at the boundary (body creation and position sync)
  */
 
 import Matter from 'matter-js';
@@ -17,16 +22,16 @@ export class PhysicsController {
 
     /**
      * @param {Object} options - Configuration options
-     * @param {Function} options.getCanvasDimensions - Returns { width, groundY, groundOffset }
+     * @param {Function} options.getCanvasDimensions - Returns { width, groundScreenY, groundOffset }
      * @param {Function} options.getNodeRadius - Returns node radius for body creation
      * @param {number} [options.groundWidthMultiplier=2] - Ground width relative to canvas
-     * @param {Object} [options.gravity={ x: 0, y: 2 }] - Gravity vector
+     * @param {Object} [options.gravity={ x: 0, y: 2 }] - Gravity vector (Matter.js Y-down)
      */
     constructor(options = {}) {
         // Configuration
         this.getCanvasDimensions = options.getCanvasDimensions ?? (() => ({
             width: 800,
-            groundY: 540,
+            groundScreenY: 540,
             groundOffset: 60
         }));
         this.getNodeRadius = options.getNodeRadius ?? (() => 12);
@@ -40,6 +45,28 @@ export class PhysicsController {
         this.constraintModeHandler = null;
 
         this.isRunning = false;
+    }
+
+    // === Coordinate Conversion ===
+
+    /**
+     * Convert world Y (Y-up) to Matter.js Y (Y-down).
+     * @param {number} worldY - Y position in world coords (Y=0 at ground)
+     * @param {number} groundScreenY - Screen Y position of ground line
+     * @returns {number} Y position in Matter.js coords
+     */
+    worldToMatter(worldY, groundScreenY) {
+        return groundScreenY - worldY;
+    }
+
+    /**
+     * Convert Matter.js Y (Y-down) to world Y (Y-up).
+     * @param {number} matterY - Y position in Matter.js coords
+     * @param {number} groundScreenY - Screen Y position of ground line
+     * @returns {number} Y position in world coords (Y=0 at ground)
+     */
+    matterToWorld(matterY, groundScreenY) {
+        return groundScreenY - matterY;
     }
 
     /**
@@ -78,14 +105,15 @@ export class PhysicsController {
         });
 
         const dims = this.getCanvasDimensions();
+        const groundScreenY = dims.groundScreenY;
 
         // Create ground
         this.groundBody = this.createGround(dims);
         Matter.World.add(this.engine.world, this.groundBody);
 
-        // Create physics bodies for nodes
+        // Create physics bodies for nodes (convert Y-up world to Y-down Matter)
         for (const node of structure.nodes) {
-            const body = this.createNodeBody(node);
+            const body = this.createNodeBody(node, groundScreenY);
             node.body = body;
             Matter.World.add(this.engine.world, body);
         }
@@ -100,7 +128,7 @@ export class PhysicsController {
         // Create physics bodies for weights (node-attached only)
         // Segment-attached weights use direct force application instead
         for (const weight of structure.weights) {
-            const body = this.createWeightBody(weight);
+            const body = this.createWeightBody(weight, groundScreenY);
             weight.body = body;
 
             if (body) {
@@ -133,6 +161,7 @@ export class PhysicsController {
     /**
      * Stop the physics simulation.
      * Syncs positions back to structure and cleans up physics objects.
+     * Converts from Matter.js coords (Y-down) back to world coords (Y-up).
      * @param {Object} structure - Structure with nodes, segments, weights arrays
      */
     stop(structure) {
@@ -147,11 +176,14 @@ export class PhysicsController {
             this.constraintModeHandler = null;
         }
 
-        // Sync node positions from bodies
+        const dims = this.getCanvasDimensions();
+        const groundScreenY = dims.groundScreenY;
+
+        // Sync node positions from bodies (convert Y-down Matter to Y-up world)
         for (const node of structure.nodes) {
             if (node.body) {
                 node.x = node.body.position.x;
-                node.y = node.body.position.y;
+                node.y = this.matterToWorld(node.body.position.y, groundScreenY);
                 node.body = null;
             }
         }
@@ -178,13 +210,16 @@ export class PhysicsController {
 
     /**
      * Create the ground body.
-     * @param {Object} dims - Canvas dimensions { width, groundY, groundOffset }
+     * Ground is at world Y=0, which in Matter.js coords is at groundScreenY.
+     * @param {Object} dims - Canvas dimensions { width, groundScreenY, groundOffset }
      * @returns {Matter.Body}
      */
     createGround(dims) {
+        // Ground body centered below the ground line
+        // In Matter.js coords, ground surface is at groundScreenY
         return Matter.Bodies.rectangle(
             dims.width / 2,
-            dims.groundY + dims.groundOffset / 2,
+            dims.groundScreenY + dims.groundOffset / 2,
             dims.width * this.groundWidthMultiplier,
             dims.groundOffset,
             {
@@ -200,12 +235,15 @@ export class PhysicsController {
 
     /**
      * Create a physics body for a node.
+     * Converts from world coords (Y-up) to Matter.js coords (Y-down).
      * @param {Object} node - Node with x, y, fixed properties
+     * @param {number} groundScreenY - Screen Y position of ground line
      * @returns {Matter.Body}
      */
-    createNodeBody(node) {
+    createNodeBody(node, groundScreenY) {
         const radius = this.getNodeRadius();
-        return Matter.Bodies.circle(node.x, node.y, radius, {
+        const matterY = this.worldToMatter(node.y, groundScreenY);
+        return Matter.Bodies.circle(node.x, matterY, radius, {
             isStatic: node.fixed,
             mass: node.mass,
             restitution: 0.2,
@@ -242,10 +280,12 @@ export class PhysicsController {
      * Create a physics body for a weight.
      * Only node-attached weights get physics bodies.
      * Segment-attached weights use direct force application instead.
+     * Converts from world coords (Y-up) to Matter.js coords (Y-down).
      * @param {Object} weight - Weight with getPosition(), getRadius(), mass properties
+     * @param {number} groundScreenY - Screen Y position of ground line
      * @returns {Matter.Body|null}
      */
-    createWeightBody(weight) {
+    createWeightBody(weight, groundScreenY) {
         // Segment-attached weights don't need physics bodies
         // Their force is applied directly to segment nodes
         if (weight.attachedToSegment) {
@@ -253,7 +293,8 @@ export class PhysicsController {
         }
 
         const pos = weight.getPosition();
-        return Matter.Bodies.circle(pos.x, pos.y, weight.getRadius(), {
+        const matterY = this.worldToMatter(pos.y, groundScreenY);
+        return Matter.Bodies.circle(pos.x, matterY, weight.getRadius(), {
             mass: weight.mass,
             restitution: 0.1,
             friction: 0.8,
@@ -423,13 +464,13 @@ export class PhysicsController {
 
     /**
      * Update ground position (call on window resize during simulation).
-     * @param {Object} dims - New canvas dimensions
+     * @param {Object} dims - New canvas dimensions { width, groundScreenY, groundOffset }
      */
     updateGroundPosition(dims) {
         if (this.groundBody) {
             Matter.Body.setPosition(this.groundBody, {
                 x: dims.width / 2,
-                y: dims.groundY + dims.groundOffset / 2
+                y: dims.groundScreenY + dims.groundOffset / 2
             });
         }
     }

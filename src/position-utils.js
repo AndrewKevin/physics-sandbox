@@ -29,17 +29,19 @@ export function getPositionOnSegment(segment, px, py) {
 
 /**
  * Clamp a position to canvas bounds, accounting for element radius.
+ * Uses Y-up coordinate system where Y=0 is at ground level.
  * @param {number} x - X position
- * @param {number} y - Y position
- * @param {Object} bounds - Canvas bounds { width, groundY }
+ * @param {number} y - Y position (Y-up: 0 = ground, positive = above ground)
+ * @param {Object} bounds - Canvas bounds { width, height }
  * @param {number} [radius=0] - Element radius to keep within bounds
  * @returns {{x: number, y: number}} Clamped position
  */
 export function clampToCanvas(x, y, bounds, radius = 0) {
     const minX = radius;
     const maxX = bounds.width - radius;
+    // Y-up: minY is just above ground (Y=0), maxY is below top boundary
     const minY = radius;
-    const maxY = bounds.groundY - radius;
+    const maxY = bounds.height - radius;
 
     return {
         x: Math.max(minX, Math.min(maxX, x)),

@@ -62,7 +62,12 @@ class PhysicsSandbox {
         // Core state
         this.material = 'beam';
         this.isSimulating = false;
-        this.groundY = 0;
+
+        // World coordinate system (Y-up, ground at Y=0)
+        // groundScreenY: screen Y position where ground line appears (at zoom=1, pan=0)
+        // worldHeight: maximum Y value in world coords (top of buildable area)
+        this.groundScreenY = 0;
+        this.worldHeight = 0;
 
         // Snapshot for simulation restore
         this.preSimulationSnapshot = null;
@@ -76,7 +81,7 @@ class PhysicsSandbox {
 
         // Drag controller (supports both single and multi-node dragging)
         this.drag = new DragController({
-            getBounds: () => ({ width: this.worldWidth, groundY: this.groundY }),
+            getBounds: () => ({ width: this.worldWidth, height: this.worldHeight }),
             getNodeRadius: () => Node.radius,
             getSnapEnabled: () => this.ui?.snapToGrid ?? false,
             getGridSize: () => Renderer.GRID_SIZE,
@@ -121,13 +126,21 @@ class PhysicsSandbox {
         // Selection box controller for multi-select
         this.selectionBox = new SelectionBoxController({
             findNodesInRect: (screenRect) => {
-                // Convert screen rect to world rect for node detection
-                const viewport = this.viewport ?? { zoom: 1, panX: 0, panY: 0 };
+                // Convert screen rect to world rect for node detection (Y-up coords)
+                // Screen rect: top-left origin, Y increases down
+                // World rect: bottom-left origin, Y increases up
+                const topLeft = this.viewport.screenToWorld(screenRect.x, screenRect.y, this.groundScreenY);
+                const bottomRight = this.viewport.screenToWorld(
+                    screenRect.x + screenRect.width,
+                    screenRect.y + screenRect.height,
+                    this.groundScreenY
+                );
+                // In Y-up, topLeft has higher Y than bottomRight
                 const worldRect = {
-                    x: (screenRect.x / viewport.zoom) + viewport.panX,
-                    y: (screenRect.y / viewport.zoom) + viewport.panY,
-                    width: screenRect.width / viewport.zoom,
-                    height: screenRect.height / viewport.zoom
+                    x: topLeft.x,
+                    y: bottomRight.y,  // Lower Y value (bottom of rect in world)
+                    width: bottomRight.x - topLeft.x,
+                    height: topLeft.y - bottomRight.y  // Height is positive
                 };
                 return this.structure.findNodesInRect(worldRect);
             },
@@ -247,7 +260,10 @@ class PhysicsSandbox {
         // Calculate world dimensions (larger than visible canvas)
         this.worldWidth = this.renderer.width * PhysicsSandbox.WORLD_WIDTH_MULTIPLIER;
         const visibleHeight = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
-        this.groundY = visibleHeight * PhysicsSandbox.WORLD_HEIGHT_MULTIPLIER;
+        // groundScreenY: screen Y position where ground line appears (at zoom=1, pan=0)
+        this.groundScreenY = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
+        // worldHeight: height of buildable area in world coords (Y-up, so this is max Y)
+        this.worldHeight = visibleHeight * PhysicsSandbox.WORLD_HEIGHT_MULTIPLIER;
 
         // Initialise hover controller (needs canvas)
         this.hover = new HoverController(this.canvas);
@@ -271,6 +287,7 @@ class PhysicsSandbox {
     /**
      * Create ground anchor points along the floor.
      * These are fixed nodes that users can connect to but cannot edit.
+     * Ground anchors are at world Y=0 (ground level in Y-up coords).
      */
     createGroundAnchors() {
         const spacing = 100; // Pixels between anchors
@@ -278,7 +295,7 @@ class PhysicsSandbox {
 
         for (let i = 0; i < anchorCount; i++) {
             const x = i * spacing;
-            this.structure.addGroundAnchor(x, this.groundY);
+            this.structure.addGroundAnchor(x, 0);  // Y=0 is ground level
         }
     }
 
@@ -286,7 +303,7 @@ class PhysicsSandbox {
         this.physics = new PhysicsController({
             getCanvasDimensions: () => ({
                 width: this.worldWidth,
-                groundY: this.groundY,
+                groundScreenY: this.groundScreenY,
                 groundOffset: PhysicsSandbox.GROUND_OFFSET
             }),
             getNodeRadius: () => Node.radius,
@@ -338,7 +355,7 @@ class PhysicsSandbox {
         this.menus = new ContextMenuController({
             structure: this.structure,
             ui: this.ui,
-            getGroundY: () => this.groundY,
+            getWorldHeight: () => this.worldHeight,
             getCanvasWidth: () => this.renderer.width,
             getNodeRadius: () => Node.radius,
             getGridSize: () => Renderer.GRID_SIZE,
@@ -361,30 +378,31 @@ class PhysicsSandbox {
             getDrag: () => this.drag,
             getHover: () => this.hover,
             getViewport: () => this.viewport,
+            getGroundScreenY: () => this.groundScreenY,
             getSelectionBox: () => this.selectionBox,
             getClipboard: () => this.clipboard,
             onMousePosChange: (x, y) => {
                 // Store screen coordinates
                 this.mouseScreenX = x;
                 this.mouseScreenY = y;
-                // Convert to world coordinates for element interaction
-                const world = this.viewport.screenToWorld(x, y);
+                // Convert to world coordinates for element interaction (Y-up)
+                const world = this.viewport.screenToWorld(x, y, this.groundScreenY);
                 this.mouseX = world.x;
                 this.mouseY = world.y;
             },
             onClick: (screenX, screenY) => {
                 // Convert screen to world coordinates for element interaction
-                const world = this.viewport.screenToWorld(screenX, screenY);
+                const world = this.viewport.screenToWorld(screenX, screenY, this.groundScreenY);
                 this.handleClick(world.x, world.y);
                 this.updateStats();
             },
             onShiftClick: (screenX, screenY) => {
-                const world = this.viewport.screenToWorld(screenX, screenY);
+                const world = this.viewport.screenToWorld(screenX, screenY, this.groundScreenY);
                 this.handleShiftClick(world.x, world.y);
                 this.updateStats();
             },
             onRightClick: (e, screenX, screenY) => {
-                const world = this.viewport.screenToWorld(screenX, screenY);
+                const world = this.viewport.screenToWorld(screenX, screenY, this.groundScreenY);
                 const elements = this.findAllElementsAt(world.x, world.y);
                 this.menus.handleRightClick(e, world.x, world.y, elements);
             },
@@ -403,12 +421,16 @@ class PhysicsSandbox {
                 // Recalculate world dimensions
                 this.worldWidth = this.renderer.width * PhysicsSandbox.WORLD_WIDTH_MULTIPLIER;
                 const visibleHeight = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
-                this.groundY = visibleHeight * PhysicsSandbox.WORLD_HEIGHT_MULTIPLIER;
+
+                // In Y-up coords, node world positions stay fixed on resize
+                // Only the screen position of ground (groundScreenY) changes
+                this.groundScreenY = this.renderer.height - PhysicsSandbox.GROUND_OFFSET;
+                this.worldHeight = visibleHeight * PhysicsSandbox.WORLD_HEIGHT_MULTIPLIER;
 
                 if (this.isSimulating) {
                     this.physics.updateGroundPosition({
                         width: this.worldWidth,
-                        groundY: this.groundY,
+                        groundScreenY: this.groundScreenY,
                         groundOffset: PhysicsSandbox.GROUND_OFFSET
                     });
                 }
@@ -449,12 +471,13 @@ class PhysicsSandbox {
         // Load structure
         const structureData = loadStructure(localStorage);
         if (structureData) {
-            this.structure.deserialize(structureData);
+            this.structure.deserialize(structureData, this.groundScreenY);
 
             // Check if ground anchors need to be recreated (world dimensions may have changed)
             const existingAnchors = this.structure.getGroundAnchors();
+            // In Y-up coords, ground anchors should be at Y=0
             const anchorsAtWrongY = existingAnchors.length > 0 &&
-                existingAnchors.some(a => Math.abs(a.y - this.groundY) > 1);
+                existingAnchors.some(a => Math.abs(a.y) > 1);
 
             if (existingAnchors.length === 0 || anchorsAtWrongY) {
                 // Remove old anchors and create new ones at correct positions
@@ -664,7 +687,7 @@ class PhysicsSandbox {
 
         if (selectedNodes.length > 0) {
             // Create new node and connect to all selected nodes
-            const bounds = { width: this.worldWidth, groundY: this.groundY };
+            const bounds = { width: this.worldWidth, height: this.worldHeight };
 
             // Clamp first, then snap, then re-clamp (ensures final position is on-grid AND in-bounds)
             let pos = clampToCanvas(x, y, bounds, Node.radius);
@@ -843,7 +866,7 @@ class PhysicsSandbox {
         }
 
         this.stateModal.showLoad((state) => {
-            this.structure.deserialize(state);
+            this.structure.deserialize(state, this.groundScreenY);
             // Only create ground anchors if none exist (backward compatibility)
             if (this.structure.getGroundAnchors().length === 0) {
                 this.createGroundAnchors();
@@ -877,13 +900,15 @@ class PhysicsSandbox {
         // Render
         this.renderer.render(this.structure, {
             simulating: this.isSimulating,
-            groundY: this.groundY,
+            groundScreenY: this.groundScreenY,
             worldWidth: this.worldWidth,
+            worldHeight: this.worldHeight,
             mouseX: this.mouseX,
             mouseY: this.mouseY,
             viewport: this.viewport.getState(),
             showStressLabels: this.ui.showStressLabels,
             showJointAngles: this.ui.showJointAngles,
+            showCoordinates: this.ui.showCoordinates,
             jointData,
             selectionBox: this.selectionBoxState,
             pastePreview: this.pastePreviewState,

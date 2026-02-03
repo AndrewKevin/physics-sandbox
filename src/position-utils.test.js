@@ -38,7 +38,7 @@ describe('Position Utils - User Intent', () => {
     });
 
     describe('Keeping nodes within playable area', () => {
-        const canvas = { width: 800, groundY: 540 };
+        const canvas = { width: 800, height: 540 };
         const nodeRadius = 12;
 
         it('node dragged into corner stays fully visible', () => {
@@ -49,10 +49,11 @@ describe('Position Utils - User Intent', () => {
             expect(result.y).toBeGreaterThanOrEqual(nodeRadius);
         });
 
-        it('node cannot be placed underground', () => {
+        it('node cannot be placed above the ceiling (top of buildable area)', () => {
             const result = clampToCanvas(400, 600, canvas, nodeRadius);
 
-            expect(result.y).toBeLessThanOrEqual(canvas.groundY - nodeRadius);
+            // In Y-up coords: height is max Y, so clamp to height - radius
+            expect(result.y).toBeLessThanOrEqual(canvas.height - nodeRadius);
         });
     });
 });
@@ -130,7 +131,7 @@ describe('getPositionOnSegment', () => {
 });
 
 describe('clampToCanvas', () => {
-    const bounds = { width: 800, groundY: 540 };
+    const bounds = { width: 800, height: 540 };
 
     it('returns unchanged position if within bounds', () => {
         const result = clampToCanvas(400, 300, bounds, 12);
@@ -247,7 +248,7 @@ describe('snapToGrid', () => {
 });
 
 describe('Snap-to-grid near boundaries (clamp→snap→clamp pattern)', () => {
-    const bounds = { width: 800, groundY: 540 };
+    const bounds = { width: 800, height: 540 };
     const radius = 12;
     const gridSize = 20;
 
@@ -325,7 +326,7 @@ describe('Snap-to-grid near boundaries (clamp→snap→clamp pattern)', () => {
             expect(result.x).toBeGreaterThanOrEqual(radius);
             expect(result.x).toBeLessThanOrEqual(bounds.width - radius);
             expect(result.y).toBeGreaterThanOrEqual(radius);
-            expect(result.y).toBeLessThanOrEqual(bounds.groundY - radius);
+            expect(result.y).toBeLessThanOrEqual(bounds.height - radius);
         }
     });
 });

@@ -4,8 +4,11 @@
  * Follows the callback-based controller pattern for testability.
  *
  * Coordinate spaces:
- * - Screen: Canvas pixel coordinates (0,0 at top-left)
- * - World: Logical coordinates where structures exist (same convention, but offset/scaled)
+ * - Screen: Canvas pixel coordinates (0,0 at top-left, Y increases downward)
+ * - World: Physics coordinates (0,0 at ground level bottom-left, Y increases upward)
+ *
+ * The Y-axis is inverted between screen and world space. groundScreenY is the
+ * screen Y position of the ground line (where world Y=0).
  */
 
 import { distance } from './position-utils.js';
@@ -50,27 +53,31 @@ export class ViewportController {
 
     /**
      * Convert screen coordinates to world coordinates.
+     * World uses Y-up convention (Y=0 at ground, positive Y is up).
      * @param {number} screenX - Screen X position
      * @param {number} screenY - Screen Y position
+     * @param {number} groundScreenY - Screen Y position of ground line
      * @returns {{ x: number, y: number }} World position
      */
-    screenToWorld(screenX, screenY) {
+    screenToWorld(screenX, screenY, groundScreenY) {
         return {
             x: (screenX / this.zoom) + this.panX,
-            y: (screenY / this.zoom) + this.panY
+            y: (groundScreenY - screenY) / this.zoom + this.panY
         };
     }
 
     /**
      * Convert world coordinates to screen coordinates.
+     * World uses Y-up convention (Y=0 at ground, positive Y is up).
      * @param {number} worldX - World X position
      * @param {number} worldY - World Y position
+     * @param {number} groundScreenY - Screen Y position of ground line
      * @returns {{ x: number, y: number }} Screen position
      */
-    worldToScreen(worldX, worldY) {
+    worldToScreen(worldX, worldY, groundScreenY) {
         return {
             x: (worldX - this.panX) * this.zoom,
-            y: (worldY - this.panY) * this.zoom
+            y: groundScreenY - (worldY - this.panY) * this.zoom
         };
     }
 
@@ -100,10 +107,11 @@ export class ViewportController {
      * @param {number} delta - Zoom delta (+1 to zoom in, -1 to zoom out)
      * @param {number} screenX - Screen X position to zoom toward
      * @param {number} screenY - Screen Y position to zoom toward
+     * @param {number} groundScreenY - Screen Y position of ground line
      */
-    zoomAt(delta, screenX, screenY) {
+    zoomAt(delta, screenX, screenY, groundScreenY) {
         // Get world position before zoom
-        const worldBefore = this.screenToWorld(screenX, screenY);
+        const worldBefore = this.screenToWorld(screenX, screenY, groundScreenY);
 
         // Apply zoom with clamping
         const newZoom = Math.max(
@@ -116,7 +124,7 @@ export class ViewportController {
         this.zoom = newZoom;
 
         // Adjust pan so world position stays under cursor
-        const worldAfter = this.screenToWorld(screenX, screenY);
+        const worldAfter = this.screenToWorld(screenX, screenY, groundScreenY);
         this.panX += worldBefore.x - worldAfter.x;
         this.panY += worldBefore.y - worldAfter.y;
 
@@ -131,8 +139,9 @@ export class ViewportController {
      * @param {number} newZoom - New zoom level
      * @param {number} [screenX] - Optional screen X to zoom toward
      * @param {number} [screenY] - Optional screen Y to zoom toward
+     * @param {number} [groundScreenY] - Screen Y position of ground line (required if screenX/Y provided)
      */
-    setZoom(newZoom, screenX, screenY) {
+    setZoom(newZoom, screenX, screenY, groundScreenY) {
         const clampedZoom = Math.max(
             ViewportController.MIN_ZOOM,
             Math.min(ViewportController.MAX_ZOOM, newZoom)
@@ -140,10 +149,10 @@ export class ViewportController {
 
         if (clampedZoom === this.zoom) return;
 
-        if (screenX !== undefined && screenY !== undefined) {
-            const worldBefore = this.screenToWorld(screenX, screenY);
+        if (screenX !== undefined && screenY !== undefined && groundScreenY !== undefined) {
+            const worldBefore = this.screenToWorld(screenX, screenY, groundScreenY);
             this.zoom = clampedZoom;
-            const worldAfter = this.screenToWorld(screenX, screenY);
+            const worldAfter = this.screenToWorld(screenX, screenY, groundScreenY);
             this.panX += worldBefore.x - worldAfter.x;
             this.panY += worldBefore.y - worldAfter.y;
         } else {
@@ -171,35 +180,58 @@ export class ViewportController {
     }
 
     /**
-     * Update pan position during mousemove.
+     * Update pan position during mousemove (before pointer lock).
      * @param {{ x: number, y: number }} screenPos - Current mouse position
-     * @returns {{ isPanning: boolean, cursor: string }} Pan state and recommended cursor
+     * @returns {{ isPanning: boolean, shouldLock: boolean, cursor: string }} Pan state
      */
     updatePan(screenPos) {
         if (!this.panStartMouse) {
-            return { isPanning: false, cursor: 'default' };
+            return { isPanning: false, shouldLock: false, cursor: 'default' };
         }
 
         const dist = distance(screenPos, this.panStartMouse);
 
         if (dist > ViewportController.PAN_THRESHOLD || this.isPanning) {
+            const wasAlreadyPanning = this.isPanning;
             this.isPanning = true;
 
-            // Pan is inverse: dragging right moves viewport left (world shifts right)
+            // Pan: dragging right moves viewport left (world shifts right)
+            // Y is inverted: dragging down reveals higher content (natural scroll)
             const dx = screenPos.x - this.panStartMouse.x;
             const dy = screenPos.y - this.panStartMouse.y;
 
             this.panX = this.panStartOffset.x - (dx / this.zoom);
-            this.panY = this.panStartOffset.y - (dy / this.zoom);
+            this.panY = this.panStartOffset.y + (dy / this.zoom);
 
             // Clamp to world bounds
             this.clampPan();
 
             this.onViewportChange();
-            return { isPanning: true, cursor: 'grabbing' };
+
+            // Request pointer lock on first pan frame
+            return { isPanning: true, shouldLock: !wasAlreadyPanning, cursor: 'grabbing' };
         }
 
-        return { isPanning: false, cursor: 'grab' };
+        return { isPanning: false, shouldLock: false, cursor: 'grab' };
+    }
+
+    /**
+     * Apply pan delta directly (used with pointer lock).
+     * @param {number} dx - Movement delta X (screen pixels)
+     * @param {number} dy - Movement delta Y (screen pixels)
+     */
+    applyPanDelta(dx, dy) {
+        if (!this.isPanning) return;
+
+        // Pan: dragging right moves viewport left (world shifts right)
+        // Y is inverted: dragging down reveals higher content (natural scroll)
+        this.panX -= dx / this.zoom;
+        this.panY += dy / this.zoom;
+
+        // Clamp to world bounds
+        this.clampPan();
+
+        this.onViewportChange();
     }
 
     /**

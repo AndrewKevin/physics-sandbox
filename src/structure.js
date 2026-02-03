@@ -800,6 +800,7 @@ export class StructureManager {
 
     /**
      * Serialize the structure to a plain object for saving/snapshot.
+     * Uses version 2 format with Y-up coordinates (Y=0 at ground).
      * @returns {Object} Serialized structure data
      */
     serialize() {
@@ -812,6 +813,7 @@ export class StructureManager {
         this.segments.forEach((segment, index) => segmentIndexMap.set(segment, index));
 
         return {
+            version: 2,  // Y-up coordinate format (ground at Y=0)
             nodes: this.nodes.map(node => {
                 const isAnchor = node instanceof GroundAnchor;
                 return {
@@ -849,11 +851,24 @@ export class StructureManager {
 
     /**
      * Deserialize structure data and restore state.
+     * Handles migration from legacy Y-down format (version 1 or unversioned) to Y-up (version 2).
      * @param {Object} data - Serialized structure data
+     * @param {number} [groundScreenY] - Screen Y position of ground (required for legacy migration)
      */
-    deserialize(data) {
+    deserialize(data, groundScreenY) {
         // Clear current state
         this.clear();
+
+        // Migrate legacy Y-down coordinates to Y-up if needed
+        const isLegacyFormat = !data.version || data.version < 2;
+        if (isLegacyFormat && groundScreenY !== undefined) {
+            // Legacy format: Y increases downward, groundY is a large positive value
+            // New format: Y increases upward, ground is at Y=0
+            // Convert: newY = groundScreenY - oldY (assuming old groundY ≈ groundScreenY)
+            for (const nodeData of data.nodes) {
+                nodeData.y = groundScreenY - nodeData.y;
+            }
+        }
 
         // Restore nodes (ground anchors vs regular nodes)
         for (const nodeData of data.nodes) {

@@ -10,7 +10,7 @@ describe('PhysicsController - User Intent', () => {
 
     beforeEach(() => {
         controller = new PhysicsController({
-            getCanvasDimensions: () => ({ width: 800, groundY: 540, groundOffset: 60 }),
+            getCanvasDimensions: () => ({ width: 800, groundScreenY: 540, groundOffset: 60 }),
             getNodeRadius: () => 12
         });
         controller.init();
@@ -56,14 +56,17 @@ describe('PhysicsController - User Intent', () => {
         it('should sync node positions back to structure', () => {
             controller.start(mockStructure);
 
-            // Simulate physics moving the unpinned node
+            // Simulate physics moving the unpinned node (Matter.js uses Y-down)
             mockStructure.nodes[1].body.position.x = 250;
-            mockStructure.nodes[1].body.position.y = 150;
+            mockStructure.nodes[1].body.position.y = 150;  // Matter Y-down coord
 
             controller.stop(mockStructure);
 
+            // X is unchanged between coordinate systems
             expect(mockStructure.nodes[1].x).toBe(250);
-            expect(mockStructure.nodes[1].y).toBe(150);
+            // Y is converted from Matter Y-down to world Y-up:
+            // worldY = groundScreenY - matterY = 540 - 150 = 390
+            expect(mockStructure.nodes[1].y).toBe(390);
         });
 
         it('should clear physics bodies from structure', () => {
@@ -206,7 +209,7 @@ describe('PhysicsController', () => {
 
     beforeEach(() => {
         controller = new PhysicsController({
-            getCanvasDimensions: () => ({ width: 800, groundY: 540, groundOffset: 60 }),
+            getCanvasDimensions: () => ({ width: 800, groundScreenY: 540, groundOffset: 60 }),
             getNodeRadius: () => 12
         });
     });
@@ -232,7 +235,7 @@ describe('PhysicsController', () => {
     describe('createGround', () => {
         it('should create static ground body', () => {
             controller.init();
-            const dims = { width: 800, groundY: 540, groundOffset: 60 };
+            const dims = { width: 800, groundScreenY: 540, groundOffset: 60 };
             const ground = controller.createGround(dims);
 
             expect(ground.isStatic).toBe(true);
@@ -241,19 +244,21 @@ describe('PhysicsController', () => {
 
         it('should position ground correctly', () => {
             controller.init();
-            const dims = { width: 800, groundY: 540, groundOffset: 60 };
+            const dims = { width: 800, groundScreenY: 540, groundOffset: 60 };
             const ground = controller.createGround(dims);
 
             expect(ground.position.x).toBe(400); // width / 2
-            expect(ground.position.y).toBe(570); // groundY + groundOffset / 2
+            expect(ground.position.y).toBe(570); // groundScreenY + groundOffset / 2
         });
     });
 
     describe('createNodeBody', () => {
+        const groundScreenY = 540;
+
         it('should create static body for fixed node', () => {
             controller.init();
             const node = { x: 100, y: 200, fixed: true };
-            const body = controller.createNodeBody(node);
+            const body = controller.createNodeBody(node, groundScreenY);
 
             expect(body.isStatic).toBe(true);
         });
@@ -261,24 +266,25 @@ describe('PhysicsController', () => {
         it('should create dynamic body for unfixed node', () => {
             controller.init();
             const node = { x: 100, y: 200, fixed: false };
-            const body = controller.createNodeBody(node);
+            const body = controller.createNodeBody(node, groundScreenY);
 
             expect(body.isStatic).toBe(false);
         });
 
-        it('should position body at node coordinates', () => {
+        it('should position body at node coordinates (converted to Matter Y-down)', () => {
             controller.init();
-            const node = { x: 150, y: 250, fixed: false };
-            const body = controller.createNodeBody(node);
+            const node = { x: 150, y: 250, fixed: false };  // World coords (Y-up)
+            const body = controller.createNodeBody(node, groundScreenY);
 
             expect(body.position.x).toBe(150);
-            expect(body.position.y).toBe(250);
+            // Matter Y = groundScreenY - worldY = 540 - 250 = 290
+            expect(body.position.y).toBe(290);
         });
 
         it('should use node mass for body mass', () => {
             controller.init();
             const node = { x: 100, y: 200, fixed: false, mass: 15 };
-            const body = controller.createNodeBody(node);
+            const body = controller.createNodeBody(node, groundScreenY);
 
             expect(body.mass).toBe(15);
         });
@@ -288,8 +294,8 @@ describe('PhysicsController', () => {
             const lightNode = { x: 100, y: 100, fixed: false, mass: 1 };
             const heavyNode = { x: 200, y: 200, fixed: false, mass: 50 };
 
-            const lightBody = controller.createNodeBody(lightNode);
-            const heavyBody = controller.createNodeBody(heavyNode);
+            const lightBody = controller.createNodeBody(lightNode, groundScreenY);
+            const heavyBody = controller.createNodeBody(heavyNode, groundScreenY);
 
             expect(lightBody.mass).toBe(1);
             expect(heavyBody.mass).toBe(50);

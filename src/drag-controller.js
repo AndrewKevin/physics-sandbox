@@ -12,7 +12,7 @@ export class DragController {
 
     /**
      * @param {Object} options - Configuration options
-     * @param {Function} options.getBounds - Returns { width, groundY } for clamping
+     * @param {Function} options.getBounds - Returns { width, height } for clamping (Y-up coords)
      * @param {Function} options.getNodeRadius - Returns node radius for clamping
      * @param {Function} [options.getSnapEnabled] - Returns true if snap-to-grid is enabled
      * @param {Function} [options.getGridSize] - Returns grid size in pixels (default 20)
@@ -26,7 +26,7 @@ export class DragController {
      */
     constructor(options = {}) {
         // Dependencies (injected)
-        this.getBounds = options.getBounds ?? (() => ({ width: 800, groundY: 540 }));
+        this.getBounds = options.getBounds ?? (() => ({ width: 800, height: 540 }));
         this.getNodeRadius = options.getNodeRadius ?? (() => 12);
         this.getSnapEnabled = options.getSnapEnabled ?? (() => false);
         this.getGridSize = options.getGridSize ?? (() => 20);

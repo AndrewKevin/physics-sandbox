@@ -7,7 +7,7 @@ import { DragController } from './drag-controller.js';
 describe('DragController - User Intent', () => {
     let controller;
     let mockNode;
-    const bounds = { width: 800, groundY: 540 };
+    const bounds = { width: 800, height: 540 };
     const nodeRadius = 12;
 
     beforeEach(() => {
@@ -84,16 +84,16 @@ describe('DragController - User Intent', () => {
 
         it('should stop node at ground level, not below', () => {
             controller.beginPotentialDrag(mockNode, { x: 200, y: 200 });
-            controller.updateDrag({ x: 200, y: 700 }); // Try to drag below ground
+            controller.updateDrag({ x: 200, y: -100 }); // Try to drag below ground (Y-up: ground is Y=0)
 
-            expect(mockNode.y).toBe(bounds.groundY - nodeRadius);
+            expect(mockNode.y).toBe(nodeRadius);  // Clamped to just above ground
         });
 
         it('should stop node at top edge, not above', () => {
             controller.beginPotentialDrag(mockNode, { x: 200, y: 200 });
-            controller.updateDrag({ x: 200, y: -100 }); // Try to drag above top
+            controller.updateDrag({ x: 200, y: 700 }); // Try to drag above top (Y-up: larger Y is higher)
 
-            expect(mockNode.y).toBe(nodeRadius);
+            expect(mockNode.y).toBe(bounds.height - nodeRadius);
         });
     });
 
@@ -140,7 +140,7 @@ describe('DragController - User Intent', () => {
 describe('DragController', () => {
     let controller;
     let mockCallbacks;
-    const mockBounds = { width: 800, groundY: 540 };
+    const mockBounds = { width: 800, height: 540 };
     const mockNodeRadius = 12;
 
     beforeEach(() => {
@@ -384,7 +384,7 @@ describe('DragController', () => {
 
         beforeEach(() => {
             snapCallbacks = {
-                getBounds: () => ({ width: 800, groundY: 540 }),
+                getBounds: () => ({ width: 800, height: 540 }),
                 getNodeRadius: () => 12,
                 getSnapEnabled: () => true,
                 getGridSize: () => 20,
@@ -447,7 +447,7 @@ describe('DragController - Multi-node drag', () => {
         node3 = { x: 150, y: 200, selected: true };
 
         mockCallbacks = {
-            getBounds: () => ({ width: 800, groundY: 540 }),
+            getBounds: () => ({ width: 800, height: 540 }),
             getNodeRadius: () => 12,
             getSnapEnabled: () => false,
             getGridSize: () => 20,

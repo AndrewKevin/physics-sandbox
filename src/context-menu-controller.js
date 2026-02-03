@@ -15,7 +15,7 @@ export class ContextMenuController {
      * @param {Object} options - Configuration options
      * @param {Object} options.structure - StructureManager instance
      * @param {Object} options.ui - UIController instance
-     * @param {Function} options.getGroundY - Returns current ground Y position
+     * @param {Function} options.getWorldHeight - Returns world height (Y-up: max buildable Y)
      * @param {Function} options.getCanvasWidth - Returns current canvas width
      * @param {Function} options.getNodeRadius - Returns node radius
      * @param {Function} [options.getGridSize] - Returns grid size in pixels (default 20)
@@ -25,7 +25,7 @@ export class ContextMenuController {
     constructor(options = {}) {
         this.structure = options.structure;
         this.ui = options.ui;
-        this.getGroundY = options.getGroundY ?? (() => 540);
+        this.getWorldHeight = options.getWorldHeight ?? (() => 540);
         this.getCanvasWidth = options.getCanvasWidth ?? (() => 800);
         this.getNodeRadius = options.getNodeRadius ?? (() => 12);
         this.getGridSize = options.getGridSize ?? (() => 20);
@@ -290,7 +290,7 @@ export class ContextMenuController {
     getEmptySpaceMenuItems(x, y) {
         const bounds = {
             width: this.getCanvasWidth(),
-            groundY: this.getGroundY()
+            height: this.getWorldHeight()
         };
         const nodeRadius = this.getNodeRadius();
 

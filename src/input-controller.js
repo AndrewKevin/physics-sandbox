@@ -15,6 +15,7 @@ export class InputController {
      * @param {Function} options.getDrag - () => DragController
      * @param {Function} options.getHover - () => HoverController
      * @param {Function} [options.getViewport] - () => ViewportController|null
+     * @param {Function} [options.getGroundScreenY] - () => number - Screen Y of ground line (for Y-up coords)
      * @param {Function} [options.getSelectionBox] - () => SelectionBoxController|null
      * @param {Function} [options.getClipboard] - () => ClipboardController|null
      * @param {Function} options.onMousePosChange - (x, y) => void
@@ -76,8 +77,26 @@ export class InputController {
         window.addEventListener('mousemove', (e) => this.onWindowMouseMove(e));
         window.addEventListener('mouseup', (e) => this.onWindowMouseUp(e));
 
+        // Pointer lock change (handles ESC key during pan)
+        if (typeof document !== 'undefined') {
+            document.addEventListener('pointerlockchange', () => this.onPointerLockChange());
+        }
+
         // Window resize
         window.addEventListener('resize', () => this.options.onWindowResize?.());
+    }
+
+    /**
+     * Handle pointer lock state changes (e.g., ESC pressed during pan).
+     */
+    onPointerLockChange() {
+        // If pointer lock was released and we were panning, end the pan
+        if (!document.pointerLockElement) {
+            const viewport = this.options.getViewport?.();
+            if (viewport?.isPanning) {
+                viewport.endPan();
+            }
+        }
     }
 
     /**
@@ -128,10 +147,11 @@ export class InputController {
         }
 
         const viewport = this.options.getViewport?.();
+        const groundScreenY = this.options.getGroundScreenY?.() ?? 0;
 
         // Convert to world coordinates for node finding and drag
         const worldPos = viewport
-            ? viewport.screenToWorld(pos.x, pos.y)
+            ? viewport.screenToWorld(pos.x, pos.y, groundScreenY)
             : pos;
 
         const node = this.options.findNodeAt(worldPos.x, worldPos.y);
@@ -156,6 +176,12 @@ export class InputController {
 
             if (viewport?.isTracking) {
                 const { wasPanning } = viewport.endPan();
+
+                // Release pointer lock if it was acquired
+                if (document.pointerLockElement === this.canvas) {
+                    document.exitPointerLock?.();
+                }
+
                 if (wasPanning) {
                     // Was panning, don't show context menu
                     return;
@@ -185,29 +211,43 @@ export class InputController {
     }
 
     onMouseMove(e) {
-        const pos = this.getMousePos(e);
-        this.options.onMousePosChange(pos.x, pos.y);
-
         const drag = this.options.getDrag();
         const hover = this.options.getHover();
         const viewport = this.options.getViewport?.();
         const selectionBox = this.options.getSelectionBox?.();
         const clipboard = this.options.getClipboard?.();
 
-        // Handle viewport panning (highest priority)
+        // Handle viewport panning with pointer lock (highest priority)
         if (viewport?.isTracking) {
+            // When pointer is locked, use movement deltas directly
+            if (document.pointerLockElement === this.canvas) {
+                viewport.applyPanDelta(e.movementX, e.movementY);
+                return;
+            }
+
+            // Not yet locked - use absolute position and check if we should lock
+            const pos = this.getMousePos(e);
+            this.options.onMousePosChange(pos.x, pos.y);
             const result = viewport.updatePan(pos);
             if (result.isPanning) {
+                // Request pointer lock for infinite panning
+                if (result.shouldLock && !document.pointerLockElement) {
+                    this.canvas.requestPointerLock?.();
+                }
                 this.canvas.style.cursor = result.cursor;
                 return;
             }
         }
 
+        const pos = this.getMousePos(e);
+        this.options.onMousePosChange(pos.x, pos.y);
+
         // Handle paste preview (follows cursor in world space)
         if (!this.options.isSimulating() && clipboard?.isActive) {
             // Convert to world coordinates for paste positioning
+            const groundScreenY = this.options.getGroundScreenY?.() ?? 0;
             const worldPos = viewport
-                ? viewport.screenToWorld(pos.x, pos.y)
+                ? viewport.screenToWorld(pos.x, pos.y, groundScreenY)
                 : pos;
             clipboard.updatePreview(worldPos);
             this.canvas.style.cursor = 'copy';
@@ -216,8 +256,9 @@ export class InputController {
 
         // Handle node dragging (takes priority) - use world coords
         if (!this.options.isSimulating() && drag.isTracking) {
+            const groundScreenY = this.options.getGroundScreenY?.() ?? 0;
             const worldPos = viewport
-                ? viewport.screenToWorld(pos.x, pos.y)
+                ? viewport.screenToWorld(pos.x, pos.y, groundScreenY)
                 : pos;
             const result = drag.updateDrag(worldPos);
             if (result.isDragging) {
@@ -238,8 +279,9 @@ export class InputController {
         // Update hover states and cursor (use world coords for element detection)
         if (!this.options.isSimulating()) {
             hover.clear();
+            const groundScreenY = this.options.getGroundScreenY?.() ?? 0;
             const worldPos = viewport
-                ? viewport.screenToWorld(pos.x, pos.y)
+                ? viewport.screenToWorld(pos.x, pos.y, groundScreenY)
                 : pos;
             hover.update(this.options.findElementAt(worldPos.x, worldPos.y));
         } else {
@@ -347,7 +389,8 @@ export class InputController {
         // Scroll down = zoom out, scroll up = zoom in
         const delta = e.deltaY > 0 ? -1 : 1;
 
-        viewport.zoomAt(delta, pos.x, pos.y);
+        const groundScreenY = this.options.getGroundScreenY?.() ?? 0;
+        viewport.zoomAt(delta, pos.x, pos.y, groundScreenY);
     }
 
     /**
@@ -386,8 +429,9 @@ export class InputController {
 
         // Update drag position (use world coords)
         if (drag.isTracking) {
+            const groundScreenY = this.options.getGroundScreenY?.() ?? 0;
             const worldPos = viewport
-                ? viewport.screenToWorld(pos.x, pos.y)
+                ? viewport.screenToWorld(pos.x, pos.y, groundScreenY)
                 : pos;
             const result = drag.updateDrag(worldPos);
             if (result.isDragging) {
@@ -445,8 +489,9 @@ export class InputController {
         // Check if touching a node for potential drag
         if (!this.options.isSimulating()) {
             const viewport = this.options.getViewport?.();
+            const groundScreenY = this.options.getGroundScreenY?.() ?? 0;
             const worldPos = viewport
-                ? viewport.screenToWorld(pos.x, pos.y)
+                ? viewport.screenToWorld(pos.x, pos.y, groundScreenY)
                 : pos;
             const node = this.options.findNodeAt(worldPos.x, worldPos.y);
             if (node) {
@@ -468,8 +513,9 @@ export class InputController {
 
         // Handle dragging (use world coords)
         if (!this.options.isSimulating() && drag.isTracking) {
+            const groundScreenY = this.options.getGroundScreenY?.() ?? 0;
             const worldPos = viewport
-                ? viewport.screenToWorld(pos.x, pos.y)
+                ? viewport.screenToWorld(pos.x, pos.y, groundScreenY)
                 : pos;
             const result = drag.updateDrag(worldPos);
             if (result.isDragging) {
@@ -480,8 +526,9 @@ export class InputController {
         // Update hover states for visual feedback
         if (!this.options.isSimulating()) {
             hover.clear();
+            const groundScreenY = this.options.getGroundScreenY?.() ?? 0;
             const worldPos = viewport
-                ? viewport.screenToWorld(pos.x, pos.y)
+                ? viewport.screenToWorld(pos.x, pos.y, groundScreenY)
                 : pos;
             hover.update(this.options.findElementAt(worldPos.x, worldPos.y));
         }
