@@ -48,7 +48,11 @@ export class ClipboardController {
         // Paste preview state
         this.isPasting = false;
         this.previewPos = null;
+        this.rotationAngle = 0;  // Rotation in radians
     }
+
+    // Rotation increment (15 degrees)
+    static ROTATION_STEP = Math.PI / 12;
 
     /**
      * Copy the currently selected nodes, segments between them, and attached weights.
@@ -235,6 +239,7 @@ export class ClipboardController {
 
         this.isPasting = true;
         this.previewPos = { ...initialPos };
+        this.rotationAngle = 0;  // Reset rotation for new paste
         this.onPasteStart();
 
         return true;
@@ -256,17 +261,90 @@ export class ClipboardController {
     }
 
     /**
+     * Rotate the paste preview by a delta angle.
+     * @param {number} delta - Rotation delta (+1 for counter-clockwise, -1 for clockwise)
+     * @returns {Object|null} Updated preview data, or null if not pasting
+     */
+    rotatePreview(delta) {
+        if (!this.isPasting) return null;
+
+        this.rotationAngle += delta * ClipboardController.ROTATION_STEP;
+
+        // Normalise to [0, 2π) for cleaner display
+        const TWO_PI = 2 * Math.PI;
+        this.rotationAngle = this.rotationAngle % TWO_PI;
+        if (this.rotationAngle < 0) {
+            this.rotationAngle += TWO_PI;
+        }
+        // Handle floating-point edge case where result is essentially 2π
+        if (Math.abs(this.rotationAngle - TWO_PI) < 1e-10) {
+            this.rotationAngle = 0;
+        }
+
+        const previewData = this.getPreviewData();
+        this.onPasteMove(previewData);
+
+        return previewData;
+    }
+
+    /**
+     * Flip the paste preview horizontally (mirror left-right).
+     * @returns {Object|null} Updated preview data, or null if not pasting
+     */
+    flipHorizontal() {
+        if (!this.isPasting || !this.clipboard) return null;
+
+        // Negate all X offsets
+        for (const node of this.clipboard.nodes) {
+            node.dx = -node.dx;
+        }
+
+        const previewData = this.getPreviewData();
+        this.onPasteMove(previewData);
+
+        return previewData;
+    }
+
+    /**
+     * Flip the paste preview vertically (mirror up-down).
+     * @returns {Object|null} Updated preview data, or null if not pasting
+     */
+    flipVertical() {
+        if (!this.isPasting || !this.clipboard) return null;
+
+        // Negate all Y offsets
+        for (const node of this.clipboard.nodes) {
+            node.dy = -node.dy;
+        }
+
+        const previewData = this.getPreviewData();
+        this.onPasteMove(previewData);
+
+        return previewData;
+    }
+
+    /**
      * Get the preview data for rendering.
+     * Applies current rotation to node offsets.
      * @returns {Object|null} { nodes: [{x, y, fixed}], segments: [{fromIndex, toIndex}] }
      */
     getPreviewData() {
         if (!this.clipboard || !this.previewPos) return null;
 
-        const nodes = this.clipboard.nodes.map(n => ({
-            x: this.previewPos.x + n.dx,
-            y: this.previewPos.y + n.dy,
-            fixed: n.fixed
-        }));
+        const cos = Math.cos(this.rotationAngle);
+        const sin = Math.sin(this.rotationAngle);
+
+        const nodes = this.clipboard.nodes.map(n => {
+            // Rotate offset around centroid (origin)
+            const rotatedDx = n.dx * cos - n.dy * sin;
+            const rotatedDy = n.dx * sin + n.dy * cos;
+
+            return {
+                x: this.previewPos.x + rotatedDx,
+                y: this.previewPos.y + rotatedDy,
+                fixed: n.fixed
+            };
+        });
 
         return {
             nodes,
@@ -290,10 +368,17 @@ export class ClipboardController {
         const newSegments = [];
         const newWeights = [];
 
-        // Create nodes at preview positions
+        const cos = Math.cos(this.rotationAngle);
+        const sin = Math.sin(this.rotationAngle);
+
+        // Create nodes at preview positions (with rotation applied)
         for (const nodeData of this.clipboard.nodes) {
-            const x = this.previewPos.x + nodeData.dx;
-            const y = this.previewPos.y + nodeData.dy;
+            // Rotate offset around centroid (origin)
+            const rotatedDx = nodeData.dx * cos - nodeData.dy * sin;
+            const rotatedDy = nodeData.dx * sin + nodeData.dy * cos;
+
+            const x = this.previewPos.x + rotatedDx;
+            const y = this.previewPos.y + rotatedDy;
             const node = this.createNode(x, y, nodeData.fixed, nodeData.mass);
             if (node) {
                 newNodes.push(node);
@@ -337,6 +422,7 @@ export class ClipboardController {
         // Clear paste state
         this.isPasting = false;
         this.previewPos = null;
+        this.rotationAngle = 0;
 
         this.onPasteEnd(newNodes, newSegments, newWeights);
 
@@ -351,6 +437,7 @@ export class ClipboardController {
 
         this.isPasting = false;
         this.previewPos = null;
+        this.rotationAngle = 0;
         this.onPasteCancel();
     }
 
@@ -402,5 +489,14 @@ export class ClipboardController {
         this.clipboard = null;
         this.isPasting = false;
         this.previewPos = null;
+        this.rotationAngle = 0;
+    }
+
+    /**
+     * Get current rotation angle in degrees (for UI display).
+     * @returns {number}
+     */
+    get rotationDegrees() {
+        return Math.round(this.rotationAngle * 180 / Math.PI);
     }
 }

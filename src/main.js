@@ -417,6 +417,12 @@ class PhysicsSandbox {
                 // startPaste checks internal clipboard first, then system clipboard
                 await this.clipboard.startPaste({ x: this.mouseX, y: this.mouseY });
             },
+            onRotateSelection: (delta) => {
+                this.transformSelectedNodes('rotate', delta);
+            },
+            onFlipSelection: (horizontal) => {
+                this.transformSelectedNodes('flip', horizontal);
+            },
             onWindowResize: () => {
                 // Recalculate world dimensions
                 this.worldWidth = this.renderer.width * PhysicsSandbox.WORLD_WIDTH_MULTIPLIER;
@@ -712,6 +718,52 @@ class PhysicsSandbox {
             this.structure.clearSelection();
             this.ui.updateSelection({});
         }
+    }
+
+    /**
+     * Transform selected nodes by rotation or flip.
+     * @param {string} type - 'rotate' or 'flip'
+     * @param {number|boolean} value - For rotate: delta (+1 CCW, -1 CW). For flip: true=horizontal, false=vertical
+     */
+    transformSelectedNodes(type, value) {
+        const nodes = this.structure.selectedNodes.filter(n => n.isEditable);
+        if (nodes.length === 0) return;
+
+        // Calculate centroid
+        const centroid = this.clipboard.calculateCentroid(nodes);
+
+        // Apply transformation to each node
+        for (const node of nodes) {
+            const dx = node.x - centroid.x;
+            const dy = node.y - centroid.y;
+
+            if (type === 'rotate') {
+                const angle = value * ClipboardController.ROTATION_STEP;
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+
+                node.x = centroid.x + (dx * cos - dy * sin);
+                node.y = centroid.y + (dx * sin + dy * cos);
+            } else if (type === 'flip') {
+                if (value) {
+                    // Horizontal flip: negate X offset
+                    node.x = centroid.x - dx;
+                } else {
+                    // Vertical flip: negate Y offset
+                    node.y = centroid.y - dy;
+                }
+            }
+        }
+
+        // Update rest lengths for all segments connected to transformed nodes
+        const nodeSet = new Set(nodes);
+        for (const segment of this.structure.segments) {
+            if (nodeSet.has(segment.nodeA) || nodeSet.has(segment.nodeB)) {
+                segment.restLength = segment.calculateLength();
+            }
+        }
+
+        this.markStructureDirty();
     }
 
     /**

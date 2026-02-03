@@ -26,6 +26,8 @@ export class InputController {
      * @param {Function} options.onDelete - () => void
      * @param {Function} [options.onCopy] - () => void - Called for Ctrl+C
      * @param {Function} [options.onPaste] - (x, y) => void - Called for Ctrl+V with current mouse pos
+     * @param {Function} [options.onRotateSelection] - (delta) => void - Called for F/Shift+F to rotate selection
+     * @param {Function} [options.onFlipSelection] - (horizontal) => void - Called for G/Shift+G to flip selection
      * @param {Function} options.onWindowResize - () => void
      */
     constructor(canvas, options) {
@@ -607,6 +609,52 @@ export class InputController {
                 this.options.onPaste?.();
             }
             return;
+        }
+
+        // Rotate: F (clockwise) / Shift+F (counter-clockwise)
+        // Works on paste preview or selected nodes
+        if ((e.key === 'f' || e.key === 'F') && !isTyping) {
+            const clipboard = this.options.getClipboard?.();
+            if (clipboard?.isActive) {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    clipboard.rotatePreview(1);   // Counter-clockwise
+                } else {
+                    clipboard.rotatePreview(-1);  // Clockwise
+                }
+                return;
+            }
+
+            // Not pasting - try to rotate selection
+            if (!this.options.isSimulating() && this.options.onRotateSelection) {
+                e.preventDefault();
+                const delta = e.shiftKey ? 1 : -1;  // Shift = CCW, normal = CW
+                this.options.onRotateSelection(delta);
+                return;
+            }
+        }
+
+        // Flip: G (horizontal) / Shift+G (vertical)
+        // Works on paste preview or selected nodes
+        if ((e.key === 'g' || e.key === 'G') && !isTyping) {
+            const clipboard = this.options.getClipboard?.();
+            if (clipboard?.isActive) {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    clipboard.flipVertical();
+                } else {
+                    clipboard.flipHorizontal();
+                }
+                return;
+            }
+
+            // Not pasting - try to flip selection
+            if (!this.options.isSimulating() && this.options.onFlipSelection) {
+                e.preventDefault();
+                const horizontal = !e.shiftKey;  // Normal = horizontal, Shift = vertical
+                this.options.onFlipSelection(horizontal);
+                return;
+            }
         }
 
         if ((e.key === 'Delete' || e.key === 'Backspace') && !this.options.isSimulating()) {
